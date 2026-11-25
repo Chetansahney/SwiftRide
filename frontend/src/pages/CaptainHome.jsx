@@ -1,29 +1,39 @@
-import React, { useRef, useContext, useEffect, useState } from 'react'
-import axios from 'axios'
-import { Link } from 'react-router-dom'
-import CaptainDetails from '../components/CaptainDetails'
-import RidePopUp from '../components/RidePopUp'
-import ConfirmRidePopUp from '../components/ConfirmRidePopUp'
-import CaptainRouteMap from '../components/CaptainRouteMap'
-import { CaptainDataContext } from '../context/CaptainContext'
-import socket from '../socket'
+import React, { useContext, useEffect, useState } from 'react';
+import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
+import { LogOut } from 'lucide-react';
+import CaptainDetails from '../components/CaptainDetails';
+import RidePopUp from '../components/RidePopUp';
+import ConfirmRidePopUp from '../components/ConfirmRidePopUp';
+import CaptainRouteMap from '../components/CaptainRouteMap';
+import { LanguageToggle, Logo } from '../components/ui/Brand';
+import { CaptainDataContext } from '../context/CaptainContext';
+import { useLanguage } from '../i18n/LanguageContext';
+import socket from '../socket';
+
+function DarkSheet({ open, children }) {
+    return (
+        <div
+            className={`fixed inset-x-0 bottom-0 z-30 mx-auto max-h-[92%] max-w-xl overflow-y-auto rounded-t-sheet border-t border-night-line bg-night px-5 pb-8 pt-5 text-white transition-transform duration-500 ease-in-out ${open ? 'translate-y-0' : 'pointer-events-none translate-y-full border-transparent'}`}
+            aria-hidden={!open}
+        >
+            {children}
+        </div>
+    );
+}
 
 const CaptainHome = () => {
-    const [ridePopUp, setRidePopUp] = useState(false)
-    const [confirmRidePopUp, setconfirmRidePopUp] = useState(false)
-    const [ride, setRide] = useState(null)
-    const RidePopUpPannelref = useRef(null)
-    const ConfirmRidePopUpPannelref = useRef(null)
+    const { t } = useLanguage();
+    const navigate = useNavigate();
+    const [ridePopUp, setRidePopUp] = useState(false);
+    const [confirmRidePopUp, setconfirmRidePopUp] = useState(false);
+    const [ride, setRide] = useState(null);
     const { captain } = useContext(CaptainDataContext);
 
-    // Join socket + send location every 10s
+    // Join the socket room and share live location every second.
     useEffect(() => {
-        if (!captain?._id) return;
-
-        socket.emit('join', {
-            userId: captain._id,
-            userType: 'captain'
-        });
+        if (!captain?._id) return undefined;
+        socket.emit('join', { userId: captain._id, userType: 'captain' });
 
         const locationInterval = setInterval(() => {
             if (!navigator.geolocation) return;
@@ -31,49 +41,37 @@ const CaptainHome = () => {
                 (position) => {
                     let rideId = ride?._id;
                     if (!rideId) {
-                        const storedRide = localStorage.getItem('activeRide');
-                        if (storedRide) {
-                            try {
-                                rideId = JSON.parse(storedRide)?._id;
-                            } catch (error) {
-                                rideId = null;
-                            }
+                        try {
+                            rideId = JSON.parse(localStorage.getItem('activeRide') || 'null')?._id;
+                        } catch {
+                            rideId = null;
                         }
                     }
                     socket.emit('update-location-captain', {
                         userId: captain._id,
                         rideId: rideId || undefined,
-                        location: {
-                            lat: position.coords.latitude,
-                            lng: position.coords.longitude,
-                        }
+                        location: { lat: position.coords.latitude, lng: position.coords.longitude },
                     });
-                    console.log('Location sent:', position.coords.latitude, position.coords.longitude);
                 },
                 (error) => console.error('Geolocation error:', error)
             );
         }, 1000);
 
         return () => clearInterval(locationInterval);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [captain]);
 
-    // ✅ Listen for new ride — inside useEffect
     useEffect(() => {
-        console.log('Setting up new-ride listener');
-        socket.on('new-ride', (data) => {
-            console.log('New ride received:', data); // ✅ will print now
+        const handleNewRide = (data) => {
             setRide(data);
             setRidePopUp(true);
-        });
-
-        return () => socket.off('new-ride'); // ✅ cleanup
+        };
+        socket.on('new-ride', handleNewRide);
+        return () => socket.off('new-ride', handleNewRide);
     }, []);
 
     async function confirmride() {
-        if (!ride?._id) {
-            return;
-        }
-
+        if (!ride?._id) return;
         const token = localStorage.getItem('captainToken');
         try {
             const response = await axios.post(
@@ -90,50 +88,67 @@ const CaptainHome = () => {
         }
     }
 
+    async function logout() {
+        const token = localStorage.getItem('captainToken');
+        try {
+            await axios.get(`${import.meta.env.VITE_BASE_URL}/captains/logout`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+        } catch (error) {
+            console.error('Logout failed:', error.response?.data || error.message);
+        } finally {
+            localStorage.removeItem('captainToken');
+            navigate('/captainlogin');
+        }
+    }
 
     return (
-        <div className='h-screen w-full relative overflow-hidden bg-white'>
-            <div className='fixed p-6 top-0 flex items-center justify-between w-full z-10'>
-                <img className='w-16' src="/Uber_logo_2018.png" alt="Uber Logo" />
-                <Link to='/captain-login' className='h-10 w-10 bg-white flex items-center justify-center rounded-full shadow-md'>
-                    <i className="text-lg font-medium ri-logout-box-r-line"></i>
-                </Link>
-            </div>
-
-            <div className='h-[60vh] w-full'>
+        <div className="relative flex h-full flex-col overflow-hidden bg-night text-white">
+            <div className="relative min-h-[260px] flex-1">
                 <CaptainRouteMap ride={ride} mode="to-pickup" />
+                <div className="absolute inset-x-5 top-6 mx-auto flex max-w-xl items-center justify-between gap-2">
+                    <span className="flex h-12 items-center rounded-full bg-night-card px-4 shadow-float">
+                        <Logo dark />
+                    </span>
+                    <div className="flex items-center gap-2">
+                        <LanguageToggle dark />
+                        <button
+                            type="button"
+                            onClick={logout}
+                            aria-label={t('logout')}
+                            className="flex h-12 w-12 items-center justify-center rounded-full bg-night-card text-white shadow-float"
+                        >
+                            <LogOut size={20} aria-hidden="true" />
+                        </button>
+                    </div>
+                </div>
             </div>
 
-            <div className='h-[40vh] p-6 pb-10 flex flex-col justify-between bg-white rounded-t-3xl shadow-[0_-10px_30px_rgba(0,0,0,0.15)]'>
+            <div className="relative z-10 -mt-7 mx-auto w-full max-w-xl rounded-t-sheet border-t border-night-line bg-night px-5 pb-8 pt-3">
+                <span className="mx-auto mb-3 block h-1 w-10 rounded-full bg-night-line" aria-hidden="true" />
                 <CaptainDetails />
             </div>
 
-            <div ref={RidePopUpPannelref}
-                className={`fixed w-full z-30 bottom-0 bg-white px-3 py-5 rounded-t-3xl shadow-[0_-10px_20px_rgba(0,0,0,0.1)] transition-transform duration-500 ease-in-out ${ridePopUp ? 'translate-y-0' : 'translate-y-full'}`}>
+            <DarkSheet open={ridePopUp}>
                 <RidePopUp
                     ride={ride}
                     setRidePopUp={setRidePopUp}
                     setconfirmRidePopUp={setconfirmRidePopUp}
                     confirmride={confirmride}
-                    pickup={ride?.origin}        // ✅ fixed from incomingRide
+                    pickup={ride?.origin}
                     destination={ride?.destination}
                     fare={ride?.fare}
                     user={ride?.user}
                     distance={ride?.distance}
                     distanceTime={ride?.distanceTime}
                 />
-            </div>
+            </DarkSheet>
 
-            <div ref={ConfirmRidePopUpPannelref}
-                className={`fixed w-full z-30 bottom-0 bg-white px-3 py-5 rounded-t-3xl shadow-[0_-10px_20px_rgba(0,0,0,0.1)] transition-transform duration-500 ease-in-out ${confirmRidePopUp ? 'translate-y-0' : 'translate-y-full'}`}>
-                <ConfirmRidePopUp
-                    setconfirmRidePopUp={setconfirmRidePopUp}
-                    setRidePopUp={setRidePopUp}
-                    ride={ride}
-                />
-            </div>
+            <DarkSheet open={confirmRidePopUp}>
+                <ConfirmRidePopUp setconfirmRidePopUp={setconfirmRidePopUp} setRidePopUp={setRidePopUp} ride={ride} />
+            </DarkSheet>
         </div>
-    )
-}
+    );
+};
 
-export default CaptainHome
+export default CaptainHome;

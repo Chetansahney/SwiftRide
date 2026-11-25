@@ -1,3 +1,61 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+  }
+
+  button,
+  a,
+  input,
+  select {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  :focus-visible {
+    outline: 3px solid #0E0F12;
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .sheet {
+    @apply bg-white rounded-t-sheet shadow-sheet;
+  }
+
+  .sheet-handle {
+    @apply mx-auto h-1 w-10 rounded-full bg-line;
+  }
+
+  .btn-primary {
+    @apply flex h-14 w-full items-center justify-center rounded-[14px] bg-ink px-5 text-base font-semibold text-white transition active:scale-[0.98] disabled:opacity-60;
+  }
+
+  .btn-volt {
+    @apply flex h-14 w-full items-center justify-center rounded-[14px] bg-volt px-5 text-base font-semibold text-ink transition active:scale-[0.98] disabled:opacity-60;
+  }
+
+  .btn-ghost {
+    @apply flex h-14 w-full items-center justify-center rounded-[14px] border border-line bg-white px-5 text-base font-medium text-ink transition active:scale-[0.98];
+  }
+
+  .field {
+    @apply h-14 w-full rounded-[14px] border border-line bg-white px-4 text-base text-ink outline-none placeholder:text-muted focus:border-ink focus:ring-2 focus:ring-ink;
+  }
+
+  .label {
+    @apply mb-2 block text-sm font-semibold text-ink;
+  }
+
+  .chip {
+    @apply inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold;
+  }
+}

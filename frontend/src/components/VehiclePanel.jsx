@@ -1,93 +1,80 @@
-import React from 'react'
+import React from 'react';
+import { ArrowRight, ChevronLeft } from 'lucide-react';
+import VehicleArt from './ui/VehicleArt';
+import FareSplit from './ui/FareSplit';
+import { useLanguage } from '../i18n/LanguageContext';
+import { VEHICLES, formatFare } from '../lib/config';
 
-const VehiclePanel = ({
-    setVehiclePanel,
-    setConfirmRidePanel,
-    fare,
-    distanceTime,
-    selectedVehicle,
-    setSelectedVehicle,
-}) => {
-    const vehicles = [
-        {
-            key: 'car',
-            label: 'UberGo',
-            seats: 4,
-            image: '/cab.png',
-            description: 'Affordable, compact rides',
-        },
-        {
-            key: 'moto',
-            label: 'Moto',
-            seats: 1,
-            image: '/bike.png',
-            description: 'Affordable motorcycle rides',
-        },
-        {
-            key: 'auto',
-            label: 'Auto',
-            seats: 3,
-            image: '/auto.png',
-            description: 'Comfortable, top-rated drivers',
-        },
-    ];
-
-    const formatFare = (value) => (value || value === 0 ? `₹${value}` : '--');
-    const timeLine = distanceTime?.duration
-        ? `${distanceTime.duration}${distanceTime.distance ? ` • ${distanceTime.distance}` : ''}`
-        : 'Enter pickup and destination';
-
-    const selectedLabel = vehicles.find((vehicle) => vehicle.key === selectedVehicle)?.label || 'UberGo';
+const VehiclePanel = ({ setVehiclePanel, setConfirmRidePanel, fare, distanceTime, selectedVehicle, setSelectedVehicle }) => {
+    const { t } = useLanguage();
+    const tripLine = distanceTime?.duration
+        ? `${distanceTime.distance ? `${distanceTime.distance} · ` : ''}${distanceTime.duration}`
+        : t('ride.enterBoth');
+    const selected = VEHICLES.find((vehicle) => vehicle.key === selectedVehicle) || VEHICLES[1];
+    const selectedFare = fare?.[selected.key];
 
     return (
-        <div>
-
-            <div className="w-full flex justify-center mb-2" onClick={() => setVehiclePanel(false)}>
-                <div className="w-10 h-1 bg-gray-300 rounded-full cursor-pointer"></div>
+        <div className="flex flex-col gap-3.5">
+            <div className="relative flex items-center justify-center">
+                <button
+                    type="button"
+                    onClick={() => setVehiclePanel(false)}
+                    aria-label="Back"
+                    className="absolute left-0 flex h-11 w-11 items-center justify-center rounded-full bg-paper"
+                >
+                    <ChevronLeft size={22} aria-hidden="true" />
+                </button>
+                <span className="sheet-handle" aria-hidden="true" />
             </div>
 
-            <div className="flex flex-col">
-                {vehicles.map((vehicle) => (
-                    <div
-                        key={vehicle.key}
-                        onClick={() => {
-                            setSelectedVehicle(vehicle.key);
-                        }}
-                        className={`flex items-center justify-between w-full px-2 py-1 border-[3px] rounded-xl mb-1 cursor-pointer transition-colors ${selectedVehicle === vehicle.key ? 'border-black' : 'border-transparent'
-                            }`}
-                    >
-                        <div className="flex items-center gap-3">
-                            <div className="w-20 flex justify-center">
-                                <img src={vehicle.image} alt={vehicle.label} className="h-14 object-contain" />
-                            </div>
-                            <div className="flex flex-col justify-center">
-                                <h4 className="text-lg font-bold flex items-center gap-1 leading-none">
-                                    {vehicle.label}{' '}
-                                    <span className="text-sm font-semibold">
-                                        <i className="ri-user-3-fill"></i>
-                                        {vehicle.seats}
-                                    </span>
-                                </h4>
-                                <p className="text-sm font-medium mt-1">{timeLine}</p>
-                                <p className="text-xs text-gray-500 leading-tight">{vehicle.description}</p>
-                            </div>
-                        </div>
-                        <h2 className="text-xl font-bold">{formatFare(fare?.[vehicle.key])}</h2>
-                    </div>
-                ))}
+            <div>
+                <h2 className="font-display text-[22px] font-semibold tracking-tight">{t('ride.chooseTitle')}</h2>
+                <p className="text-sm text-muted">{tripLine}</p>
             </div>
+
+            <div role="radiogroup" aria-label={t('ride.chooseTitle')} className="flex flex-col gap-2">
+                {VEHICLES.map((vehicle) => {
+                    const isSelected = vehicle.key === selectedVehicle;
+                    return (
+                        <button
+                            key={vehicle.key}
+                            type="button"
+                            role="radio"
+                            aria-checked={isSelected}
+                            onClick={() => setSelectedVehicle(vehicle.key)}
+                            className={`flex items-center gap-3 rounded-2xl bg-white p-2 pr-3.5 text-left transition ${isSelected ? 'border-2 border-ink' : 'border border-line'}`}
+                        >
+                            <span className={`flex h-[52px] w-[72px] shrink-0 items-center justify-center rounded-xl ${isSelected ? 'bg-volt' : 'bg-paper'}`}>
+                                <VehicleArt art={vehicle.art} width={62} />
+                            </span>
+                            <span className="flex min-w-0 flex-1 flex-col">
+                                <strong className="text-[15px] font-semibold">{t(vehicle.nameKey)}</strong>
+                                <span className="text-xs text-muted">{t(vehicle.noteKey)}</span>
+                            </span>
+                            <span className="font-display text-xl font-semibold">{formatFare(fare?.[vehicle.key])}</span>
+                        </button>
+                    );
+                })}
+            </div>
+
+            <FareSplit fare={selectedFare} />
 
             <button
-                className="w-full bg-black text-white text-lg font-semibold py-3 rounded-xl mt-4 active:scale-95 transition-transform"
+                type="button"
+                disabled={!selectedFare && selectedFare !== 0}
                 onClick={() => {
                     setVehiclePanel(false);
                     setConfirmRidePanel(true);
                 }}
+                className="btn-primary justify-between pl-5 pr-2"
             >
-                Confirm {selectedLabel}
+                {t('ride.book', { vehicle: t(selected.nameKey), fare: formatFare(selectedFare) })}
+                <span className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-volt text-ink" aria-hidden="true">
+                    <ArrowRight size={20} />
+                </span>
             </button>
         </div>
-    )
-}
+    );
+};
 
-export default VehiclePanel
+export default VehiclePanel;

@@ -1,93 +1,67 @@
-import { LoadScript, GoogleMap, DirectionsRenderer } from '@react-google-maps/api';
-import { useMemo, useState, useEffect } from 'react';
+import { DirectionsRenderer, Marker } from '@react-google-maps/api';
+import { useEffect, useState } from 'react';
+import BaseMap from './ui/BaseMap';
+import { markerIcons, routeLineOptions, useGeolocation, useMapsLoader } from '../lib/maps';
+import { useLanguage } from '../i18n/LanguageContext';
+import { shortPlace } from '../lib/config';
 
-const mapContainerStyle = {
-    width: '100%',
-    height: '100%',
-};
-
-const CaptainRouteMap = ({ ride, mode }) => {
+// Captain's night map: route from the captain's position to the pickup
+// (mode "to-pickup") or to the drop (mode "to-destination").
+const CaptainRouteMap = ({ ride, mode, showBanner = true }) => {
+    const { t } = useLanguage();
     const [directions, setDirections] = useState(null);
-    const [isMapReady, setIsMapReady] = useState(false);
+    const captainLocation = useGeolocation();
+    const { isLoaded } = useMapsLoader();
 
-    const origin = ride?.origin || '';
-    const destination = ride?.destination || '';
-
-    const routeTarget = mode === 'to-destination' ? destination : origin;
-
-    const defaultCenter = useMemo(
-        () => ({ lat: 22.5726, lng: 88.3639 }),
-        []
-    );
+    const toDrop = mode === 'to-destination';
+    const routeTarget = toDrop ? ride?.destination : ride?.origin;
+    const hasLocation = Boolean(captainLocation);
 
     useEffect(() => {
-        if (!isMapReady || !routeTarget) {
+        if (!isLoaded || !routeTarget || !hasLocation || !window.google) {
+            setDirections(null);
             return;
         }
-
-        if (!window.google) {
-            return;
-        }
-
-        const directionsService = new window.google.maps.DirectionsService();
-        const request = {
-            origin: 'My Location',
-            destination: routeTarget,
-            travelMode: window.google.maps.TravelMode.DRIVING,
-        };
-
-        directionsService.route(request, (result, status) => {
-            if (status === window.google.maps.DirectionsStatus.OK) {
-                setDirections(result);
+        const service = new window.google.maps.DirectionsService();
+        service.route(
+            { origin: captainLocation, destination: routeTarget, travelMode: window.google.maps.TravelMode.DRIVING },
+            (result, status) => {
+                if (status === window.google.maps.DirectionsStatus.OK) setDirections(result);
             }
-        });
-    }, [isMapReady, routeTarget]);
+        );
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isLoaded, routeTarget, hasLocation]);
+
+    const icons = isLoaded ? markerIcons() : {};
+    const leg = directions?.routes?.[0]?.legs?.[0];
 
     return (
-        <div className="relative w-full h-full">
-            <LoadScript
-                googleMapsApiKey={import.meta.env.VITE_GOOGLE_MAPS_API}
-                onLoad={() => setIsMapReady(true)}
-            >
-                <GoogleMap
-                    mapContainerStyle={mapContainerStyle}
-                    center={defaultCenter}
-                    zoom={13}
-                    options={{
-                        streetViewControl: false,
-                        mapTypeControl: false,
-                        fullscreenControl: false,
-                    }}
-                >
-                    {directions ? (
-                        <DirectionsRenderer
-                            directions={directions}
-                            options={{
-                                suppressMarkers: false,
-                                polylineOptions: {
-                                    strokeColor: '#111827',
-                                    strokeOpacity: 0.9,
-                                    strokeWeight: 5,
-                                },
-                            }}
-                        />
-                    ) : null}
-                </GoogleMap>
-            </LoadScript>
+        <div className="relative h-full w-full">
+            <BaseMap theme="night" center={captainLocation || undefined} zoom={14}>
+                {directions ? (
+                    <DirectionsRenderer
+                        directions={directions}
+                        options={{ suppressMarkers: true, polylineOptions: routeLineOptions('night') }}
+                    />
+                ) : null}
+                {captainLocation ? <Marker position={captainLocation} icon={icons.captain} title="You" /> : null}
+                {leg?.end_location ? (
+                    <Marker position={leg.end_location} icon={toDrop ? icons.drop : icons.pickup} title={toDrop ? 'Drop' : 'Pickup'} />
+                ) : null}
+            </BaseMap>
 
-            <div className="absolute left-4 right-4 top-4 bg-white/95 backdrop-blur rounded-2xl shadow-lg p-4 flex items-center justify-between">
-                <div>
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Captain Route</p>
-                    <h3 className="text-lg font-bold text-gray-900">
-                        {mode === 'to-destination' ? 'Heading to destination' : 'Heading to pickup'}
-                    </h3>
-                </div>
-                <div className="flex items-center gap-3 text-gray-700">
-                    <div className="h-9 w-9 rounded-full bg-red-100 flex items-center justify-center">
-                        <i className="ri-road-map-line text-lg"></i>
+            {showBanner && routeTarget ? (
+                <div className="absolute left-4 right-4 top-24 flex items-center gap-3 rounded-2xl bg-night-card/95 p-4 text-white shadow-float">
+                    <span className={`h-3 w-3 shrink-0 ${toDrop ? 'rounded-[3px] bg-white' : 'rounded-full bg-volt'}`} aria-hidden="true" />
+                    <div className="min-w-0">
+                        <p className="text-xs text-night-muted">{toDrop ? t('captain.toDrop') : t('captain.toPickup')}</p>
+                        <p className="truncate text-base font-semibold">{shortPlace(routeTarget)}</p>
                     </div>
+                    {leg?.duration?.text ? (
+                        <span className="ml-auto shrink-0 font-display text-lg font-semibold">{leg.duration.text}</span>
+                    ) : null}
                 </div>
-            </div>
+            ) : null}
         </div>
     );
 };

@@ -1,4 +1,9 @@
-import React from 'react'
+import React, { useState } from 'react';
+import { ChevronLeft, Wallet } from 'lucide-react';
+import VehicleArt from './ui/VehicleArt';
+import RouteSummary from './RouteSummary';
+import { useLanguage } from '../i18n/LanguageContext';
+import { formatFare, vehicleMeta } from '../lib/config';
 
 const ConfirmRide = ({
     setConfirmRidePanel,
@@ -11,90 +16,62 @@ const ConfirmRide = ({
     selectedVehicle,
     createRide,
 }) => {
-    const vehicleImages = {
-        car: '/cab.png',
-        moto: '/bike.png',
-        auto: '/auto.png',
-    };
-
-    const vehicleImage = vehicleImages[selectedVehicle] || vehicleImages.car;
+    const { t } = useLanguage();
+    const [isBooking, setIsBooking] = useState(false);
+    const vehicle = vehicleMeta(selectedVehicle);
     const rideFare = fare?.[selectedVehicle];
-    const getShortName = (location) => {
-        if (!location) return '';
-        return location.split(',')[0].trim();
-    };
 
     const handleConfirm = async () => {
+        setIsBooking(true);
         const ride = await createRide(selectedVehicle);
-        if (!ride) {
-            return;
-        }
+        setIsBooking(false);
+        if (!ride) return;
         setLookingForDriverPanel(true);
         setConfirmRidePanel(false);
         setVehiclePanel(false);
     };
+
     return (
-        <div>
-            
-            <div className="w-full flex justify-center mb-2" onClick={() => {
-                setConfirmRidePanel(false)
-            }}>
-                <div className="w-10 h-1 bg-gray-300 rounded-full cursor-pointer"></div>
-            </div>
-
-            <h3 className='text-2xl font-bold mb-5 text-center'>Confirm your Ride</h3>
-
-            <div className='flex flex-col justify-between items-center gap-4'>
-                
-                <img className='h-24 object-contain' src={vehicleImage} alt="Selected Vehicle" />
-
-                
-                <div className='w-full mt-5'>
-                    
-                    
-                    <div className='flex items-center gap-5 p-3 border-b-2 border-gray-100'>
-                        <i className="text-lg ri-map-pin-user-fill"></i>
-                        <div>
-                            <h3 className='text-sm font-bold leading-tight'>{getShortName(pickup)}</h3>
-                            <p className='text-xs text-gray-600'>{pickup || "Kankariya Talab, Ahmedabad"}</p>
-                        </div>
-                    </div>
-
-                    
-                    <div className='flex items-center gap-5 p-3 border-b-2 border-gray-100'>
-                        <i className="text-lg ri-map-pin-2-fill"></i>
-                        <div>
-                            <h3 className='text-sm font-bold leading-tight'>{getShortName(destination)}</h3>
-                            <p className='text-xs text-gray-600'>{destination || "Phoenix Marketcity, Bengaluru"}</p>
-                        </div>
-                    </div>
-
-                    
-                    <div className='flex items-center gap-5 p-3'>
-                        <i className="text-lg ri-currency-line"></i>
-                        <div>
-                            <h3 className='text-lg font-bold leading-tight'>
-                                {rideFare || rideFare === 0 ? `₹${rideFare}` : '₹--'}
-                            </h3>
-                            <p className='text-sm text-gray-600'>
-                                {distanceTime?.duration
-                                    ? `${distanceTime.duration}${distanceTime.distance ? ` • ${distanceTime.distance}` : ''}`
-                                    : 'Cash'}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-
-                
-                <button 
-                    onClick={handleConfirm}
-                    className="w-full bg-green-600 text-white text-lg font-semibold py-3 rounded-xl mt-5 active:scale-95 transition-all"
+        <div className="flex flex-col gap-4">
+            <div className="relative flex items-center justify-center">
+                <button
+                    type="button"
+                    onClick={() => {
+                        setConfirmRidePanel(false);
+                        setVehiclePanel(true);
+                    }}
+                    aria-label="Back"
+                    className="absolute left-0 flex h-11 w-11 items-center justify-center rounded-full bg-paper"
                 >
-                    Confirm
+                    <ChevronLeft size={22} aria-hidden="true" />
                 </button>
+                <span className="sheet-handle" aria-hidden="true" />
             </div>
-        </div>
-    )
-}
 
-export default ConfirmRide
+            <h2 className="font-display text-[22px] font-semibold tracking-tight">{t('ride.confirmTitle')}</h2>
+
+            <div className="flex items-center gap-4 rounded-2xl bg-paper p-3">
+                <VehicleArt art={vehicle.art} width={96} />
+                <div className="flex flex-col">
+                    <strong className="text-base font-semibold">{t(vehicle.nameKey)}</strong>
+                    <span className="text-xs text-muted">{t(vehicle.noteKey)}</span>
+                    {distanceTime?.duration ? <span className="text-xs text-muted">{distanceTime.duration}</span> : null}
+                </div>
+                <span className="ml-auto font-display text-2xl font-semibold">{formatFare(rideFare)}</span>
+            </div>
+
+            <RouteSummary pickup={pickup} destination={destination} />
+
+            <div className="flex items-center gap-3 rounded-2xl border border-line px-4 py-3 text-sm">
+                <Wallet size={20} aria-hidden="true" />
+                {t('ride.payCash')}
+            </div>
+
+            <button type="button" onClick={handleConfirm} disabled={isBooking} className="btn-primary">
+                {isBooking ? t('loading') : t('ride.confirm')}
+            </button>
+        </div>
+    );
+};
+
+export default ConfirmRide;

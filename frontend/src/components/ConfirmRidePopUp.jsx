@@ -1,151 +1,126 @@
-import React, { useState } from "react";
+import React, { useState } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
+import { X } from 'lucide-react';
+import RouteSummary from './RouteSummary';
+import { useLanguage } from '../i18n/LanguageContext';
+import { formatFare } from '../lib/config';
+
 const ConfirmRidePopUp = (props) => {
+    const { t } = useLanguage();
     const [otp, setOtp] = useState('');
     const [otpError, setOtpError] = useState('');
     const [isVerifying, setIsVerifying] = useState(false);
-    const riderFirstName = props.ride?.user?.name?.firstname || "";
-    const riderLastName = props.ride?.user?.name?.lastname || "";
-    const riderName = [riderFirstName, riderLastName].filter(Boolean).join(" ") || "Rider";
-    const fareLabel = props.ride?.fare || props.ride?.fare === 0 ? `₹${props.ride?.fare}` : "₹--";
-    const pickup = props.ride?.origin || "Pickup location";
-    const destination = props.ride?.destination || "Destination";
+    const [verified, setVerified] = useState(false);
+    const riderName =
+        [props.ride?.user?.name?.firstname, props.ride?.user?.name?.lastname].filter(Boolean).join(' ') || t('captain.rider');
+
+    const verify = async () => {
+        const otpValue = String(otp || '').trim();
+        if (!props.ride?._id || otpValue.length !== 4) {
+            setOtpError(t('captain.pinInvalid'));
+            return;
+        }
+        setIsVerifying(true);
+        setOtpError('');
+        try {
+            const token = localStorage.getItem('captainToken');
+            await axios.post(
+                `${import.meta.env.VITE_BASE_URL}/rides/start-ride`,
+                { rideId: props.ride._id, otp: otpValue },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            setVerified(true);
+        } catch (error) {
+            setOtpError(error.response?.data?.error || t('captain.pinFailed'));
+        } finally {
+            setIsVerifying(false);
+        }
+    };
 
     return (
-        <div className="h-fit w-full bg-white flex flex-col pb-6">
-            {/* Drag Handle */}
-            <div className='w-full flex items-center justify-center py-2'>
-                <div className='w-10 h-1 bg-gray-200 rounded-full'></div>
+        <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+                <h3 className="font-display text-xl font-semibold">{t('captain.tripDetails')}</h3>
+                <button
+                    type="button"
+                    onClick={() => props.setconfirmRidePopUp(false)}
+                    aria-label={t('captain.cancel')}
+                    className="flex h-11 w-11 items-center justify-center rounded-full bg-night-card"
+                >
+                    <X size={20} aria-hidden="true" />
+                </button>
             </div>
 
-            {/* Header */}
-            <div className='w-full flex items-center justify-between px-6 py-2'>
-                <h3 className="text-lg font-bold text-gray-800">Trip Details</h3>
-                <i onClick={() => props.setconfirmRidePopUp(false)} className="ri-close-line text-2xl text-gray-400"></i>
+            <div className="flex items-center justify-between rounded-2xl bg-night-card px-4 py-3">
+                <div className="flex items-center gap-3">
+                    <span className="flex h-11 w-11 items-center justify-center rounded-full bg-paper font-display font-semibold text-ink" aria-hidden="true">
+                        {riderName.slice(0, 1).toUpperCase()}
+                    </span>
+                    <div className="flex flex-col">
+                        <strong className="text-[15px] font-semibold">{riderName}</strong>
+                        <span className="text-xs text-night-muted">{t('ride.payCash')}</span>
+                    </div>
+                </div>
+                <strong className="font-display text-xl font-semibold">{formatFare(props.ride?.fare)}</strong>
             </div>
 
-            <div className="flex-1 p-5 space-y-5">
-
-                {/* 1. Compact Passenger Info */}
-                <div className='flex items-center justify-between bg-gray-50 p-3 rounded-xl border border-gray-100'>
-                    <div className='flex items-center gap-3'>
-                        <img className='h-12 w-12 rounded-full object-cover' src="user.webp" alt="Rider" />
-                        <div>
-                            <h2 className='text-sm font-bold text-gray-900'>{riderName}</h2>
-                            <p className='text-[10px] text-gray-500'>Cash</p>
-                        </div>
-                    </div>
-                    <div className="text-right">
-                        <p className="text-sm font-black text-gray-900">{fareLabel}</p>
-                    </div>
-                </div>
-
-                <div className='w-full bg-gray-50 p-4 rounded-xl border border-gray-100'>
-                    <p className='text-xs font-bold text-gray-400 uppercase tracking-widest mb-2'>Enter OTP</p>
-                    <div className='flex items-center gap-3'>
-                        <input
-                            value={otp}
-                            onChange={(e) => {
-                                const value = e.target.value.replace(/\D/g, '').slice(0, 4);
-                                setOtp(value);
-                                setOtpError('');
-                            }}
-                            className='flex-1 bg-white border border-gray-200 rounded-xl px-4 py-3 text-base font-semibold tracking-widest text-gray-900 outline-none focus:ring-2 focus:ring-yellow-200'
-                            inputMode="numeric"
-                            maxLength={4}
-                            placeholder="----"
-                        />
-                        <button
-                            onClick={async () => {
-                                const otpValue = String(otp || '').trim();
-                                if (!props.ride?._id || otpValue.length !== 4) {
-                                    setOtpError('Enter a valid 4 digit OTP.');
-                                    return;
-                                }
-                                setIsVerifying(true);
-                                setOtpError('');
-                                try {
-                                    const token = localStorage.getItem('captainToken');
-                                    console.log('start-ride payload:', { rideId: props.ride._id, otp: otpValue });
-                                    await axios.post(
-                                        `${import.meta.env.VITE_BASE_URL}/rides/start-ride`,
-                                        { rideId: props.ride._id, otp: otpValue },
-                                        { headers: { Authorization: `Bearer ${token}` } }
-                                    );
-                                } catch (error) {
-                                    setOtpError(error.response?.data?.error || 'OTP verification failed.');
-                                } finally {
-                                    setIsVerifying(false);
-                                }
-                            }}
-                            disabled={isVerifying}
-                            className='bg-black text-white text-xs font-bold px-4 py-3 rounded-xl active:scale-95 transition-all disabled:opacity-60'
-                            type="button"
-                        >
-                            {isVerifying ? 'Verifying...' : 'Verify'}
-                        </button>
-                    </div>
-                    {otpError ? (
-                        <p className='text-xs text-red-500 mt-2'>{otpError}</p>
-                    ) : null}
-                </div>
-
-                {/* 2. Sleek Route Timeline (Smaller Fonts) */}
-                <div className='relative px-2 py-1'>
-                    {/* Vertical Connector */}
-                    <div className="absolute left-[12px] top-6 bottom-6 w-[1.5px] bg-gray-100"></div>
-
-                    {/* Pickup */}
-                    <div className='flex items-start gap-4 mb-6 relative'>
-                        <div className="mt-1 w-2.5 h-2.5 rounded-full border-2 border-yellow-500 bg-white z-10"></div>
-                        <div>
-                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">Pick Up</p>
-                            <h3 className='text-sm font-semibold text-gray-800'>{pickup}</h3>
-                        </div>
-                    </div>
-
-                    {/* Destination */}
-                    <div className='flex items-start gap-4 relative'>
-                        <div className="mt-1 w-2.5 h-2.5 bg-gray-900 rounded-sm z-10"></div>
-                        <div>
-                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">Drop Off</p>
-                            <h3 className='text-sm font-semibold text-gray-800'>{destination}</h3>
-                        </div>
-                    </div>
-                </div>
-
-                {/* 3. Action Row (Smaller icons/text) */}
-                <div className="flex flex-row gap-3">
-                    <button className="flex-1 py-3 bg-green-50 text-green-600 text-xs font-bold rounded-xl active:scale-95 transition-all flex items-center justify-center gap-2">
-                        <i className="ri-phone-fill text-sm"></i> Call
-                    </button>
-                    <button className="flex-1 py-3 bg-blue-50 text-blue-600 text-xs font-bold rounded-xl active:scale-95 transition-all flex items-center justify-center gap-2">
-                        <i className="ri-message-3-fill text-sm"></i> Message
-                    </button>
-                    <button
-                        onClick={() => {
-                            // Logic to navigate to pickup
-                            props.setconfirmRidePopUp(false);
-                            props.setRidePopUp(false);
+            <div className="rounded-2xl bg-night-card p-4">
+                <label htmlFor="ride-pin" className="mb-2 block text-sm font-semibold">
+                    {t('captain.enterPin')}
+                </label>
+                <div className="flex gap-2.5">
+                    <input
+                        id="ride-pin"
+                        value={otp}
+                        onChange={(e) => {
+                            setOtp(e.target.value.replace(/\D/g, '').slice(0, 4));
+                            setOtpError('');
                         }}
-                        className="flex-1 py-3 bg-red-50 text-red-500 text-xs font-bold rounded-xl active:scale-95 transition-all flex items-center justify-center gap-2">
-                        <i className="ri-close-circle-fill text-sm"></i> Cancel
+                        className="h-14 min-w-0 flex-1 rounded-[14px] bg-night px-4 text-center font-display text-2xl font-semibold tracking-[0.5em] text-white outline-none ring-1 ring-night-edge focus:ring-2 focus:ring-volt"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        maxLength={4}
+                        placeholder="····"
+                    />
+                    <button
+                        type="button"
+                        onClick={verify}
+                        disabled={isVerifying || verified}
+                        className={`h-14 rounded-[14px] px-5 text-sm font-semibold ${verified ? 'bg-volt text-ink' : 'bg-white text-ink'} disabled:opacity-80`}
+                    >
+                        {verified ? '✓' : isVerifying ? t('captain.verifying') : t('captain.verify')}
                     </button>
                 </div>
+                {otpError ? (
+                    <p className="mt-2 text-xs text-[#FF8A8F]" role="alert">
+                        {otpError}
+                    </p>
+                ) : null}
             </div>
-            {/* 4. Primary Sticky Button */}
-            <div className="px-5">
-                <Link
-                    to="/captain-riding"
+
+            <RouteSummary pickup={props.ride?.origin} destination={props.ride?.destination} dark />
+
+            <div className="flex gap-2.5">
+                <button
+                    type="button"
                     onClick={() => {
-                        // Logic to navigate to pickup
                         props.setconfirmRidePopUp(false);
                         props.setRidePopUp(false);
                     }}
-                    className="flex items-center justify-center w-full bg-yellow-500 text-black text-sm font-bold py-4 rounded-2xl shadow-lg shadow-yellow-100 active:scale-95 transition-all uppercase tracking-wider"
+                    className="h-14 rounded-2xl border border-night-edge px-5 text-sm font-medium text-white"
                 >
-                    Go to Pick Up
+                    {t('captain.cancel')}
+                </button>
+                <Link
+                    to="/captain-riding"
+                    onClick={() => {
+                        props.setconfirmRidePopUp(false);
+                        props.setRidePopUp(false);
+                    }}
+                    className="flex h-14 flex-1 items-center justify-center rounded-2xl bg-volt text-base font-semibold text-ink active:scale-[0.98]"
+                >
+                    {t('captain.goPickup')}
                 </Link>
             </div>
         </div>

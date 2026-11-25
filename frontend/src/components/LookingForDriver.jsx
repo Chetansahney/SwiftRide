@@ -1,82 +1,52 @@
-import React from 'react'
+import React from 'react';
+import VehicleArt from './ui/VehicleArt';
+import RouteSummary from './RouteSummary';
+import { useLanguage } from '../i18n/LanguageContext';
+import { formatFare, vehicleMeta } from '../lib/config';
 
-const LookingForDriver = ({
-    setLookingForDriverPanel,
-    setWaitingForDriver,
-    pickup,
-    destination,
-    fare,
-    distanceTime,
-    selectedVehicle,
-}) => {
-    const vehicleImages = {
-        car: '/cab.png',
-        moto: '/bike.png',
-        auto: '/auto.png',
-    };
-
-    const vehicleImage = vehicleImages[selectedVehicle] || vehicleImages.car;
+const LookingForDriver = ({ setLookingForDriverPanel, pickup, destination, fare, selectedVehicle }) => {
+    const { t } = useLanguage();
+    const vehicle = vehicleMeta(selectedVehicle);
     const rideFare = fare?.[selectedVehicle];
+
     return (
-        <div>
-            
-            <div className="w-full flex justify-center mb-2" onClick={(e) => {
-                e.stopPropagation(); // Prevents clicking the handle from finding a driver
-                setLookingForDriverPanel(false);
-            }}>
-                <div className="w-10 h-1 bg-gray-300 rounded-full cursor-pointer"></div>
+        <div className="flex flex-col gap-4">
+            <button
+                type="button"
+                onClick={() => setLookingForDriverPanel(false)}
+                aria-label="Minimise"
+                className="mx-auto flex h-6 w-16 items-center justify-center"
+            >
+                <span className="sheet-handle" aria-hidden="true" />
+            </button>
+
+            <div className="flex flex-col items-center gap-3 text-center">
+                <div className="relative flex h-28 w-28 items-center justify-center">
+                    <span className="absolute inset-0 animate-ping rounded-full bg-volt/40" aria-hidden="true" />
+                    <span className="relative flex h-24 w-24 items-center justify-center rounded-full bg-volt">
+                        <VehicleArt art={vehicle.art} width={72} />
+                    </span>
+                </div>
+                <h2 className="font-display text-[22px] font-semibold tracking-tight" aria-live="polite">
+                    {t('ride.looking')}
+                </h2>
+                <p className="text-sm text-muted">{t('ride.lookingSub')}</p>
             </div>
 
-            <h3 className='text-2xl font-bold mb-5 text-center'>Looking for a driver</h3>
-
-            
-            <div className='w-full bg-gray-200 h-1 mb-5 overflow-hidden rounded-full'>
-                <div className='bg-black h-full w-1/3 animate-ride-load'></div>
+            <div className="h-1 w-full overflow-hidden rounded-full bg-line" aria-hidden="true">
+                <div className="h-full w-1/3 animate-ride-load bg-ink" />
             </div>
 
-            <div className='flex flex-col justify-between items-center gap-4'>
-               
-                <div className='relative flex items-center justify-center'>
-                    <div className='h-16 w-16 bg-gray-100 rounded-full flex items-center justify-center border-2 border-gray-200 z-10'>
-                        <i className="ri-user-6-fill text-3xl text-gray-400"></i>
-                    </div>
-                    <img className='h-24 -ml-4 object-contain' src={vehicleImage} alt="Vehicle" />
-                </div>
+            <RouteSummary pickup={pickup} destination={destination} />
 
-                <div className='w-full mt-5'>
-                    <div className='flex items-center gap-5 p-3 border-b-2 border-gray-100'>
-                        <i className="text-lg ri-map-pin-user-fill"></i>
-                        <div>
-                            <h3 className='text-lg font-bold leading-tight'>Pickup</h3>
-                            <p className='text-sm text-gray-600 truncate max-w-[200px]'>{pickup}</p>
-                        </div>
-                    </div>
-
-                    <div className='flex items-center gap-5 p-3 border-b-2 border-gray-100'>
-                        <i className="text-lg ri-map-pin-2-fill"></i>
-                        <div>
-                            <h3 className='text-lg font-bold leading-tight'>Destination</h3>
-                            <p className='text-sm text-gray-600 truncate max-w-[200px]'>{destination}</p>
-                        </div>
-                    </div>
-
-                    <div className='flex items-center gap-5 p-3'>
-                        <i className="text-lg ri-currency-line"></i>
-                        <div>
-                            <h3 className='text-lg font-bold leading-tight'>
-                                {rideFare || rideFare === 0 ? `₹${rideFare}` : '₹--'}
-                            </h3>
-                            <p className='text-sm text-gray-600'>
-                                {distanceTime?.duration
-                                    ? `${distanceTime.duration}${distanceTime.distance ? ` • ${distanceTime.distance}` : ''}`
-                                    : 'Payment: Cash'}
-                            </p>
-                        </div>
-                    </div>
-                </div>
+            <div className="flex items-center justify-between rounded-2xl bg-paper px-4 py-3">
+                <span className="text-sm">
+                    {t(vehicle.nameKey)} · {t('ride.payCash')}
+                </span>
+                <strong className="font-display text-xl font-semibold">{formatFare(rideFare)}</strong>
             </div>
         </div>
-    )
-}
+    );
+};
 
-export default LookingForDriver
+export default LookingForDriver;

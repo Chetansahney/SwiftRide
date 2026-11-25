@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { UserDataContext } from '../context/UserContext'; // Assuming this is your context
+import { UserDataContext } from '../context/UserContext';
+import { FullScreenLoader } from '../components/ui/AuthLayout';
 
 const UserProtectWrapper = ({ children }) => {
   const token = localStorage.getItem('userToken');
@@ -34,7 +35,7 @@ const UserProtectWrapper = ({ children }) => {
   }, [token, navigate, setUser]);
 
   if (isLoading) {
-    return <div>Loading...</div>; // Prevent children from rendering until user is verified
+    return <FullScreenLoader label="Loading" />;
   }
 
   return <>{children}</>;

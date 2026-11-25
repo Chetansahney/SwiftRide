@@ -1,10 +1,17 @@
-import React, { useEffect, useState } from 'react'
-import axios from 'axios'
-import { Link } from 'react-router-dom'
-import { useNavigate } from 'react-router-dom'
-import UserRouteMap from '../components/UserRouteMap'
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+import { Link, useNavigate } from 'react-router-dom';
+import { House, TriangleAlert } from 'lucide-react';
+import UserRouteMap from '../components/UserRouteMap';
+import RouteSummary from '../components/RouteSummary';
+import VehicleArt from '../components/ui/VehicleArt';
+import NumberPlate from '../components/ui/NumberPlate';
+import FareSplit from '../components/ui/FareSplit';
+import { useLanguage } from '../i18n/LanguageContext';
+import { formatFare, vehicleMeta } from '../lib/config';
 
 const Riding = () => {
+    const { t } = useLanguage();
     const [ride, setRide] = useState(null);
     const [selectedVehicle, setSelectedVehicle] = useState('car');
     const [isPaying, setIsPaying] = useState(false);
@@ -19,124 +26,96 @@ const Riding = () => {
                 console.error('Failed to parse activeRide:', error);
             }
         }
-
         const storedVehicle = localStorage.getItem('selectedVehicle');
-        if (storedVehicle) {
-            setSelectedVehicle(storedVehicle);
-        }
+        if (storedVehicle) setSelectedVehicle(storedVehicle);
     }, []);
 
     const captain = ride?.captain;
-    const captainFirstName = captain?.name?.firstname || '';
-    const captainLastName = captain?.name?.lastname || '';
-    const captainName = [captainFirstName, captainLastName].filter(Boolean).join(' ') || 'Driver';
+    const captainName = [captain?.name?.firstname, captain?.name?.lastname].filter(Boolean).join(' ') || t('ride.driver');
     const vehicle = captain?.vehicle || {};
-    const plate = vehicle.plate || '---';
-    const vehicleLabel = [vehicle.model, vehicle.color].filter(Boolean).join(' • ') || 'Vehicle details';
-    const pickup = ride?.origin || 'Pickup location';
-    const destination = ride?.destination || 'Destination';
-    const fare = ride?.fare ?? '--';
+    const meta = vehicleMeta(vehicle.vehicleType || selectedVehicle);
+    const vehicleLabel = [vehicle.color, vehicle.model].filter(Boolean).join(' ') || t(meta.nameKey);
 
-    const vehicleImages = {
-        car: '/cab.png',
-        moto: '/bike.png',
-        auto: '/auto.png',
-        bike: '/bike.png',
+    const pay = async () => {
+        if (!ride?._id || isPaying) return;
+        const token = localStorage.getItem('userToken');
+        if (!token) return;
+        setIsPaying(true);
+        try {
+            await axios.post(
+                `${import.meta.env.VITE_BASE_URL}/rides/complete-payment`,
+                { rideId: ride._id },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            localStorage.removeItem('activeRide');
+            navigate('/home');
+        } catch (error) {
+            console.error('Payment failed:', error.response?.data || error.message);
+        } finally {
+            setIsPaying(false);
+        }
     };
-    const vehicleImage = vehicleImages[selectedVehicle] || vehicleImages.car;
-    return (
-        <div className='h-screen w-full bg-white relative overflow-hidden'>
-            
-            
-            <Link to='/home' className='fixed right-4 top-4 h-10 w-10 bg-white flex items-center justify-center rounded-full z-10 shadow-lg border border-gray-100'>
-                <i className="text-xl font-bold ri-home-5-line"></i>
-            </Link>
 
-            
-            <div className='h-[45vh] w-full'>
-                <UserRouteMap destination={destination} />
+    return (
+        <div className="relative flex h-full flex-col overflow-hidden bg-[#EEF0F2]">
+            <div className="relative h-[42%] min-h-[240px] w-full shrink-0">
+                <UserRouteMap destination={ride?.destination} />
+                <div className="absolute inset-x-5 top-6 flex justify-between">
+                    <a
+                        href="tel:112"
+                        className="flex h-12 items-center gap-2 rounded-full bg-signal px-4 text-sm font-semibold text-white shadow-float"
+                    >
+                        <TriangleAlert size={18} aria-hidden="true" />
+                        {t('ride.sos')}
+                    </a>
+                    <Link
+                        to="/home"
+                        aria-label="Home"
+                        className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-ink shadow-float"
+                    >
+                        <House size={20} aria-hidden="true" />
+                    </Link>
+                </div>
             </div>
 
-            <div className='h-[50vh] p-5 flex flex-col justify-between bg-white relative z-10 rounded-t-3xl shadow-[0_-10px_30px_rgba(0,0,0,0.1)]'>
-                
-                
-                <div className='flex items-center justify-between'>
-                    <img className='h-14 object-contain drop-shadow-md' src={vehicleImage} alt="vehicle" />
-                    <div className='text-right'>
-                        <h2 className='text-sm font-bold text-gray-400 uppercase tracking-widest'>{captainName}</h2>
-                        <h4 className='text-2xl font-black text-gray-900 leading-none'>{plate}</h4>
-                        <p className='text-sm font-medium text-gray-500 mt-1'>{vehicleLabel}</p>
+            <div className="sheet relative z-10 -mt-7 mx-auto flex w-full max-w-xl flex-1 flex-col gap-3.5 overflow-y-auto px-5 pb-7 pt-3">
+                <span className="sheet-handle" aria-hidden="true" />
+
+                <div className="flex items-center gap-3 rounded-2xl bg-ink px-4 py-3 text-white" aria-live="polite">
+                    <span className="relative flex h-3 w-3" aria-hidden="true">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-volt opacity-75" />
+                        <span className="relative inline-flex h-3 w-3 rounded-full bg-volt" />
+                    </span>
+                    <div>
+                        <strong className="block text-[15px] font-semibold">{t('ride.started')}</strong>
+                        <span className="text-xs text-[#B4B8C0]">{t('ride.startedSub')}</span>
                     </div>
                 </div>
 
-               
-                <div className='w-full mt-2'>
-                    
-                    
-                    <div className='flex items-center gap-4 py-3 border-b border-gray-100'>
-                         <div className='relative flex items-center justify-center'>
-                             <div className='h-3 w-3 bg-blue-600 rounded-full animate-ping absolute'></div>
-                             <div className='h-3 w-3 bg-blue-600 rounded-full relative z-10'></div>
-                         </div>
-                         <div className="px-1">
-                             <h3 className='text-base font-bold text-blue-600'>Ride Started</h3>
-                             <p className='text-xs text-gray-500'>The driver is on the correct route</p>
-                         </div>
-                    </div>
-
-                    
-                    <div className='flex items-center gap-4 py-3 border-b border-gray-100'>
-                        <i className="text-lg ri-map-pin-2-fill text-gray-700"></i>
-                        <div>
-                            <h3 className='text-base font-bold leading-tight'>{pickup}</h3>
-                            <p className='text-sm text-gray-500'>{destination}</p>
-                        </div>
-                    </div>
-
-                    
-                    <div className='flex items-center gap-4 py-3'>
-                        <i className="text-lg ri-bank-card-2-fill text-gray-700"></i>
-                        <div>
-                            <h3 className='text-base font-bold leading-tight'>₹{fare}</h3>
-                            <p className='text-sm text-gray-500'>Mode of Payment: Cash</p>
-                        </div>
+                <div className="flex items-center gap-3 rounded-2xl bg-paper p-3">
+                    <VehicleArt art={meta.art} width={80} />
+                    <div className="flex min-w-0 flex-col items-start gap-1">
+                        <NumberPlate plate={vehicle.plate} />
+                        <span className="truncate text-[13px] text-muted">
+                            {captainName} · {vehicleLabel}
+                        </span>
                     </div>
                 </div>
 
-                
-                <button
-                    onClick={async () => {
-                        if (!ride?._id || isPaying) {
-                            return;
-                        }
-                        const token = localStorage.getItem('userToken');
-                        if (!token) {
-                            return;
-                        }
-                        setIsPaying(true);
-                        try {
-                            await axios.post(
-                                `${import.meta.env.VITE_BASE_URL}/rides/complete-payment`,
-                                { rideId: ride._id },
-                                { headers: { Authorization: `Bearer ${token}` } }
-                            );
-                            localStorage.removeItem('activeRide');
-                            navigate('/home');
-                        } catch (error) {
-                            console.error('Payment failed:', error.response?.data || error.message);
-                        } finally {
-                            setIsPaying(false);
-                        }
-                    }}
-                    disabled={isPaying}
-                    className='w-full bg-green-600 text-white font-bold py-3.5 rounded-xl shadow-lg active:scale-[0.98] transition-all hover:bg-green-700 disabled:opacity-60'
-                >
-                    {isPaying ? 'Processing...' : 'Make a Payment'}
-                    <i className="ri-currency-line text-lg ml-2"></i>
+                <RouteSummary pickup={ride?.origin} destination={ride?.destination} />
+
+                <div className="flex items-center justify-between px-1">
+                    <span className="text-sm text-muted">{t('ride.total')}</span>
+                    <strong className="font-display text-2xl font-semibold">{formatFare(ride?.fare)}</strong>
+                </div>
+                <FareSplit fare={ride?.fare} />
+
+                <button type="button" onClick={pay} disabled={isPaying || !ride?._id} className="btn-volt mt-auto">
+                    {isPaying ? t('ride.paying') : t('ride.pay', { fare: formatFare(ride?.fare) })}
                 </button>
             </div>
         </div>
-    )
-}
+    );
+};
 
-export default Riding
+export default Riding;
