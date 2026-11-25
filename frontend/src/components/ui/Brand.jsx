@@ -57,7 +57,9 @@ export function LanguagePicker({ dark = true }) {
                             onClick={() => setLang(language.code)}
                             className={`h-12 rounded-[14px] text-[15px] font-semibold transition ${
                                 selected
-                                    ? 'bg-white text-ink'
+                                    ? dark
+                                        ? 'bg-white text-ink'
+                                        : 'bg-ink text-white'
                                     : dark
                                         ? 'border border-night-edge text-white'
                                         : 'border border-line text-ink'

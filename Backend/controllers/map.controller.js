@@ -61,3 +61,22 @@ module.exports.getSuggestions = async (req, res) => {
         res.status(500).json({ error: "An error occurred while fetching suggestions." });
     }
 }
+// Nearest Metro station (or railway station where a city has no Metro), used
+// for the one-tap "Nearest Metro" shortcut on the rider home screen.
+module.exports.getNearestTransit = async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+    }
+    const latitude = parseFloat(req.query.lat);
+    const longitude = parseFloat(req.query.lng);
+    try {
+        const place =
+            (await mapservice.getNearestPlace(latitude, longitude, "subway_station")) ||
+            (await mapservice.getNearestPlace(latitude, longitude, "train_station"));
+        res.json(place);
+    } catch (error) {
+        console.error("Error in getNearestTransit controller:", error.message || error);
+        res.status(500).json({ error: "An error occurred while finding the nearest station." });
+    }
+}

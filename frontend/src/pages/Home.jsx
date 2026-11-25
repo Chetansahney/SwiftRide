@@ -1,20 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { ChevronDown, LogOut, Mic, Search } from 'lucide-react';
+import { Briefcase, Check, ChevronDown, History, House, LocateFixed, MapPin, Mic, Pencil, RotateCcw, Search, TrainFront, User } from 'lucide-react';
 import LocationSearchPanel from '../components/LocationSearchPanel';
 import VehiclePanel from '../components/VehiclePanel';
 import ConfirmRide from '../components/ConfirmRide';
 import LookingForDriver from '../components/LookingForDriver';
 import WaitingForDriver from '../components/WaitingForDriver';
 import LiveTracking from '../components/livetracking';
-import VehicleArt from '../components/ui/VehicleArt';
 import { LanguageToggle, Logo } from '../components/ui/Brand';
 import { UserDataContext } from '../context/UserContext';
 import { useLanguage } from '../i18n/LanguageContext';
-import { FEATURES, VEHICLES } from '../lib/config';
+import { STRINGS } from '../i18n/strings';
+import { FEATURES, shortPlace } from '../lib/config';
+import { reverseGeocode, useGeolocation } from '../lib/maps';
+import { addRecentPlace, getRecentPlaces, getSavedPlaces, savePlace } from '../lib/places';
 import useSpeechInput from '../lib/useSpeechInput';
 import socket from '../socket';
+
+const API = import.meta.env.VITE_BASE_URL;
+const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('userToken')}` });
 
 // Bottom sheet that slides up over the map.
 function Sheet({ open, children, className = '' }) {
@@ -28,39 +33,180 @@ function Sheet({ open, children, className = '' }) {
     );
 }
 
+const CHIP_ICONS = { home: House, work: Briefcase, transit: TrainFront, recent: History };
+
 const Home = () => {
-    const { t, current } = useLanguage();
-    const [pickup, setPickup] = useState('');
+    const { t, current, lang } = useLanguage();
+    const navigate = useNavigate();
+    const { user, setUser } = React.useContext(UserDataContext);
+
+    // Pickup is either "where I'm standing" (default) or a place the rider chose.
+    const userLocation = useGeolocation();
+    const [geoDenied, setGeoDenied] = useState(false);
+    const [pickupMode, setPickupMode] = useState('current');
+    const [customPickup, setCustomPickup] = useState('');
+    const [currentAddress, setCurrentAddress] = useState('');
     const [destination, setDestination] = useState('');
+
     const [panelOpen, setPanelOpen] = useState(false);
-    const [vehiclePanel, setVehiclePanel] = useState(false);
     const [activeInput, setActiveInput] = useState(null);
+    const [savingPlace, setSavingPlace] = useState(null);
+    const [savedPlaces, setSavedPlaces] = useState(getSavedPlaces);
+    const [recentPlaces, setRecentPlaces] = useState(getRecentPlaces);
+    const [nearestTransit, setNearestTransit] = useState(null);
+    const [voiceGuess, setVoiceGuess] = useState(null);
+
+    const [vehiclePanel, setVehiclePanel] = useState(false);
     const [confirmRidePanel, setConfirmRidePanel] = useState(false);
     const [lookingForDriverPanel, setLookingForDriverPanel] = useState(false);
     const [waitingForDriver, setWaitingForDriver] = useState(false);
     const [fare, setFare] = useState(null);
     const [distanceTime, setDistanceTime] = useState(null);
+    const [nearby, setNearby] = useState(null);
     const [selectedVehicle, setSelectedVehicle] = useState('auto');
     const [createdRide, setCreatedRide] = useState(null);
     const [confirmedRide, setConfirmedRide] = useState(null);
     const [rideOtp, setRideOtp] = useState(null);
-    const { user, setUser } = React.useContext(UserDataContext);
     const [ride, setRide] = useState(null);
-    const navigate = useNavigate();
 
-    const voice = useSpeechInput(current.speech, (text) => {
-        setDestination(text);
-        setActiveInput('destination');
+    const destinationInputRef = useRef(null);
+    const pickupInputRef = useRef(null);
+
+    const coordinateString = userLocation ? `${userLocation.lat.toFixed(6)},${userLocation.lng.toFixed(6)}` : '';
+    const pickup = pickupMode === 'current' ? currentAddress || coordinateString : customPickup;
+    const pickupIsCurrent = pickupMode === 'current';
+    const pickupLabel = pickupIsCurrent ? currentAddress || t('home.currentLocation') : customPickup;
+    const pickupCardText = pickupIsCurrent
+        ? userLocation
+            ? currentAddress
+                ? shortPlace(currentAddress)
+                : t('home.currentLocation')
+            : geoDenied
+                ? t('home.setPickup')
+                : t('home.locating')
+        : shortPlace(customPickup) || t('home.setPickup');
+
+    // Rounded to ~100 m so small GPS jitter doesn't trigger new lookups.
+    const locationKey = userLocation ? `${userLocation.lat.toFixed(3)},${userLocation.lng.toFixed(3)}` : null;
+
+    useEffect(() => {
+        if (!navigator.geolocation) return;
+        navigator.geolocation.getCurrentPosition(
+            () => setGeoDenied(false),
+            () => setGeoDenied(true),
+            { timeout: 15000 }
+        );
+    }, []);
+
+    useEffect(() => {
+        if (!locationKey) return undefined;
+        let cancelled = false;
+        reverseGeocode(userLocation).then((address) => {
+            if (!cancelled && address) setCurrentAddress(address);
+        });
+        const controller = new AbortController();
+        axios
+            .get(`${API}/maps/nearest-transit`, {
+                params: { lat: userLocation.lat, lng: userLocation.lng },
+                headers: authHeaders(),
+                signal: controller.signal,
+            })
+            .then((response) => {
+                if (!cancelled) setNearestTransit(response.data || null);
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [locationKey]);
+
+    const focusField = (field) => {
+        // Wait for the card to finish growing before the keyboard opens.
+        setTimeout(() => {
+            (field === 'pickup' ? pickupInputRef : destinationInputRef).current?.focus();
+        }, 350);
+    };
+
+    const openSearch = (field = 'destination') => {
+        setActiveInput(field);
         setPanelOpen(true);
+        focusField(field);
+    };
+
+    const closeSearch = () => {
+        setPanelOpen(false);
+        setSavingPlace(null);
+    };
+
+    const goToDestination = (address) => {
+        setDestination(address);
+        if (pickup) {
+            setPanelOpen(false);
+            setVehiclePanel(true);
+        } else {
+            openSearch('pickup');
+        }
+    };
+
+    const afterPickupChosen = () => {
+        if (destination.trim()) {
+            setPanelOpen(false);
+            setVehiclePanel(true);
+        } else {
+            setActiveInput('destination');
+            destinationInputRef.current?.focus();
+        }
+    };
+
+    const chooseDestination = (address) => {
+        if (savingPlace) {
+            setSavedPlaces(savePlace(savingPlace, address));
+            setSavingPlace(null);
+        }
+        setDestination(address);
+    };
+
+    // Voice: on the home card we confirm what we heard before booking; inside the
+    // search sheet the words simply go into the drop field.
+    const voice = useSpeechInput(current.speech, (text) => {
+        if (panelOpen) {
+            setDestination(text);
+            setActiveInput('destination');
+            return;
+        }
+        setVoiceGuess({ text, place: null });
+        axios
+            .get(`${API}/maps/get-suggestions`, { params: { input: text }, headers: authHeaders() })
+            .then((response) => setVoiceGuess({ text, place: response.data?.[0]?.description || text }))
+            .catch(() => setVoiceGuess({ text, place: text }));
     });
 
+    const quickPlaces = [
+        { key: 'home', label: t('home.home'), address: savedPlaces.home },
+        { key: 'work', label: t('home.work'), address: savedPlaces.work },
+        nearestTransit?.address ? { key: 'transit', label: nearestTransit.name, address: nearestTransit.address } : null,
+        ...recentPlaces
+            .filter((place) => place !== savedPlaces.home && place !== savedPlaces.work)
+            .slice(0, 2)
+            .map((place) => ({ key: 'recent', label: shortPlace(place), address: place })),
+    ].filter(Boolean);
+
+    const onQuickPlace = (place) => {
+        if (place.address) {
+            goToDestination(place.address);
+        } else {
+            setSavingPlace(place.key);
+            setDestination('');
+            openSearch('destination');
+        }
+    };
+
     const fetchRideDetails = async (rideId) => {
-        const token = localStorage.getItem('userToken');
-        if (!token || !rideId) return;
+        if (!localStorage.getItem('userToken') || !rideId) return;
         try {
-            const response = await axios.get(`${import.meta.env.VITE_BASE_URL}/rides/${rideId}`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
+            const response = await axios.get(`${API}/rides/${rideId}`, { headers: authHeaders() });
             if (response?.data?._id) {
                 setConfirmedRide(response.data);
                 setRide(response.data);
@@ -100,13 +246,9 @@ const Home = () => {
 
     useEffect(() => {
         const loadProfile = async () => {
-            if (user?._id) return;
-            const token = localStorage.getItem('userToken');
-            if (!token) return;
+            if (user?._id || !localStorage.getItem('userToken')) return;
             try {
-                const response = await axios.get(`${import.meta.env.VITE_BASE_URL}/users/profile`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                });
+                const response = await axios.get(`${API}/users/profile`, { headers: authHeaders() });
                 if (response?.data?._id) setUser(response.data);
             } catch (error) {
                 console.error('Failed to load user profile:', error.response?.data || error.message);
@@ -130,21 +272,30 @@ const Home = () => {
         if (!pickup.trim() || !destination.trim()) {
             setFare(null);
             setDistanceTime(null);
+            setNearby(null);
             return;
         }
         const controller = new AbortController();
-        const token = localStorage.getItem('userToken');
+        const headers = authHeaders();
         const fetchFareAndTime = async () => {
+            // Distance to the nearest driver of each type; optional, so a failure
+            // just hides the "200 m from pickup" line.
+            axios
+                .get(`${API}/rides/nearby`, { params: { origin: pickup }, headers, signal: controller.signal })
+                .then((response) => setNearby(response.data))
+                .catch((error) => {
+                    if (error.code !== 'ERR_CANCELED') setNearby(null);
+                });
             try {
                 const [fareResponse, distanceResponse] = await Promise.all([
-                    axios.get(`${import.meta.env.VITE_BASE_URL}/rides/calculate-fare`, {
+                    axios.get(`${API}/rides/calculate-fare`, {
                         params: { origin: pickup, destination },
-                        headers: { Authorization: `Bearer ${token}` },
+                        headers,
                         signal: controller.signal,
                     }),
-                    axios.get(`${import.meta.env.VITE_BASE_URL}/maps/get-distance-time`, {
+                    axios.get(`${API}/maps/get-distance-time`, {
                         params: { origin: pickup, destination },
-                        headers: { Authorization: `Bearer ${token}` },
+                        headers,
                         signal: controller.signal,
                     }),
                 ]);
@@ -165,16 +316,16 @@ const Home = () => {
     }, [pickup, destination]);
 
     async function createRide(vehicleType) {
-        const token = localStorage.getItem('userToken');
         try {
             const response = await axios.post(
-                `${import.meta.env.VITE_BASE_URL}/rides/create`,
+                `${API}/rides/create`,
                 { origin: pickup, destination, vehicleType },
-                { headers: { Authorization: `Bearer ${token}` } }
+                { headers: authHeaders() }
             );
             setCreatedRide(response.data.ride || null);
             setRideOtp(response.data.otp || null);
             setRide(response.data.ride || null);
+            setRecentPlaces(addRecentPlace(destination));
             localStorage.setItem('activeRide', JSON.stringify(response.data.ride || null));
             localStorage.setItem('selectedVehicle', vehicleType);
             return response.data.ride;
@@ -184,22 +335,32 @@ const Home = () => {
         }
     }
 
-    const openSearch = (field) => {
-        setActiveInput(field);
-        setPanelOpen(true);
-    };
+    const searchHidden = vehiclePanel || confirmRidePanel || lookingForDriverPanel || waitingForDriver || Boolean(voiceGuess);
+    const firstName = user?.name?.firstname;
+    const greeting = firstName ? t('home.greeting', { name: firstName }) : t('home.greetingNoName');
+    // A second line in another language, so riders recognise it at a glance.
+    const secondLang = lang === 'en' ? 'hi' : 'en';
+    const greetingSecond = STRINGS[secondLang]['home.greetingNoName'];
+    const searchTitle = savingPlace ? t(savingPlace === 'home' ? 'home.setHome' : 'home.setWork') : t('home.planTitle');
 
-    const pickVehicle = (key) => {
-        setSelectedVehicle(key);
-        if (pickup.trim() && destination.trim()) {
-            setPanelOpen(false);
-            setVehiclePanel(true);
-        } else {
-            openSearch(pickup.trim() ? 'destination' : 'pickup');
-        }
-    };
+    // One card that morphs: a floating "where to?" card, then a full "Plan your ride" sheet.
+    const cardShape = panelOpen
+        ? 'inset-x-0 bottom-0 h-[calc(100%-5.5rem)] rounded-t-[28px] rounded-b-none'
+        : 'inset-x-3 bottom-4 h-[204px] rounded-[26px]';
 
-    const searchHidden = vehiclePanel || confirmRidePanel || lookingForDriverPanel || waitingForDriver;
+    const micButton = (size) =>
+        voice.supported ? (
+            <button
+                type="button"
+                onClick={voice.listening ? voice.stop : voice.start}
+                aria-label={t('home.speak')}
+                aria-pressed={voice.listening}
+                className={`flex shrink-0 flex-col items-center justify-center gap-0.5 rounded-[18px] ${size} ${voice.listening ? 'bg-volt text-ink' : 'bg-ink text-white'}`}
+            >
+                <Mic size={22} className={voice.listening ? 'animate-pulse' : 'text-volt'} aria-hidden="true" />
+                <span className="text-[12px] font-semibold leading-none">{voice.listening ? '…' : t('home.speakShort')}</span>
+            </button>
+        ) : null;
 
     return (
         <div className="relative h-full overflow-hidden bg-[#EEF0F2]">
@@ -220,119 +381,220 @@ const Home = () => {
                     ) : null}
                     <LanguageToggle />
                     <Link
-                        to="/user/logout"
-                        aria-label={t('logout')}
-                        className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-ink shadow-float"
+                        to="/account"
+                        aria-label={t('account.title')}
+                        className="flex h-12 w-12 items-center justify-center rounded-full bg-ink font-display text-base font-semibold text-volt shadow-float ring-2 ring-white"
                     >
-                        <LogOut size={20} aria-hidden="true" />
+                        {firstName ? firstName.slice(0, 1).toUpperCase() : <User size={20} aria-hidden="true" />}
                     </Link>
                 </div>
             </div>
 
             <div
-                className={`sheet absolute inset-x-0 bottom-0 z-20 mx-auto flex max-w-xl flex-col gap-4 px-5 pb-7 pt-3 transition-all duration-500 ${panelOpen ? 'top-24' : ''} ${searchHidden ? 'pointer-events-none translate-y-full shadow-none' : ''}`}
+                className={`absolute z-20 mx-auto max-w-xl overflow-hidden bg-white shadow-sheet transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${cardShape} ${searchHidden ? 'pointer-events-none translate-y-[120%] shadow-none' : ''}`}
             >
-                <div className="relative flex items-center justify-center">
-                    <span className="sheet-handle" aria-hidden="true" />
-                    {panelOpen ? (
+                {!panelOpen ? (
+                    <div key="idle" className="flex h-full flex-col gap-2.5 p-3 animate-fade-up">
                         <button
                             type="button"
-                            onClick={() => setPanelOpen(false)}
-                            aria-label="Close search"
-                            className="absolute right-0 top-0 flex h-11 w-11 items-center justify-center rounded-full bg-paper"
+                            onClick={() => openSearch('pickup')}
+                            className="flex h-10 min-w-0 items-center gap-2 rounded-xl px-2 text-left active:bg-paper"
                         >
-                            <ChevronDown size={22} aria-hidden="true" />
+                            <span className="h-3 w-3 shrink-0 rounded-full border-[3px] border-ink bg-volt" aria-hidden="true" />
+                            <span className="shrink-0 text-[13px] text-muted">{t('ride.pickup')}:</span>
+                            <strong className="min-w-0 truncate text-sm font-semibold">{pickupCardText}</strong>
+                            <span className="ml-auto shrink-0 text-[13px] font-semibold underline underline-offset-4">{t('home.change')}</span>
                         </button>
-                    ) : null}
-                </div>
 
-                <h1 className="font-display text-2xl font-semibold tracking-tight">{t('home.title')}</h1>
-
-                <form className="flex flex-col gap-2" onSubmit={(e) => e.preventDefault()}>
-                    <label className="flex h-14 items-center gap-3 rounded-[14px] bg-paper px-4">
-                        <span className="h-3 w-3 shrink-0 rounded-full border-[3px] border-ink" aria-hidden="true" />
-                        <input
-                            value={pickup}
-                            onFocus={() => openSearch('pickup')}
-                            onChange={(e) => {
-                                setActiveInput('pickup');
-                                setPickup(e.target.value);
-                            }}
-                            aria-label={t('home.pickup')}
-                            placeholder={t('home.pickup')}
-                            className="min-w-0 flex-1 bg-transparent text-base font-medium text-ink outline-none placeholder:text-muted"
-                            type="text"
-                        />
-                    </label>
-                    <div className="flex gap-2">
-                        <label className="flex h-14 min-w-0 flex-1 items-center gap-3 rounded-[14px] bg-paper px-4">
-                            <Search size={20} className="shrink-0" aria-hidden="true" />
-                            <input
-                                value={destination}
-                                onFocus={() => openSearch('destination')}
-                                onChange={(e) => {
-                                    setActiveInput('destination');
-                                    setDestination(e.target.value);
-                                }}
-                                aria-label={t('home.destination')}
-                                placeholder={voice.listening ? t('home.listening') : t('home.destination')}
-                                className="min-w-0 flex-1 bg-transparent text-base font-medium text-ink outline-none placeholder:text-muted"
-                                type="text"
-                            />
-                        </label>
-                        {voice.supported ? (
+                        <div className="flex gap-2">
                             <button
                                 type="button"
-                                onClick={voice.listening ? voice.stop : voice.start}
-                                aria-label={t('home.speak')}
-                                aria-pressed={voice.listening}
-                                className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-[14px] ${voice.listening ? 'bg-volt text-ink' : 'bg-ink text-volt'}`}
+                                onClick={() => openSearch('destination')}
+                                className="flex h-[68px] min-w-0 flex-1 items-center gap-3 rounded-[18px] bg-paper px-3 text-left"
                             >
-                                <Mic size={22} aria-hidden="true" />
+                                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-volt text-ink" aria-hidden="true">
+                                    <Search size={22} strokeWidth={2.2} />
+                                </span>
+                                <span className="flex min-w-0 flex-col">
+                                    <strong className="line-clamp-2 font-display text-[16px] font-semibold leading-tight tracking-tight">{greeting}</strong>
+                                    <span className="truncate text-[13px] text-muted" lang={secondLang}>
+                                        {greetingSecond}
+                                    </span>
+                                </span>
                             </button>
-                        ) : null}
-                    </div>
-                </form>
+                            {micButton('h-[68px] w-[68px]')}
+                        </div>
 
-                {panelOpen ? (
-                    <div className="-mx-1 min-h-0 flex-1 overflow-y-auto">
-                        <LocationSearchPanel
-                            setPanelOpen={setPanelOpen}
-                            setVehiclePanel={setVehiclePanel}
-                            setPickup={setPickup}
-                            setDestination={setDestination}
-                            activeInput={activeInput}
-                            inputValue={activeInput === 'pickup' ? pickup : destination}
-                        />
+                        <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 [scrollbar-width:none]">
+                            {quickPlaces.map((place) => {
+                                const Icon = CHIP_ICONS[place.key];
+                                return (
+                                    <button
+                                        key={`${place.key}-${place.address || place.label}`}
+                                        type="button"
+                                        onClick={() => onQuickPlace(place)}
+                                        className={`flex h-11 shrink-0 items-center gap-2 rounded-full px-4 text-sm font-semibold ${place.address ? 'bg-paper text-ink' : 'border border-dashed border-[#B4B8C0] text-muted'}`}
+                                    >
+                                        <Icon size={16} aria-hidden="true" />
+                                        <span className="max-w-[150px] truncate">{place.label}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
                     </div>
                 ) : (
-                    <>
-                        <div className="grid grid-cols-3 gap-2">
-                            {VEHICLES.map((vehicle) => (
-                                <button
-                                    key={vehicle.key}
-                                    type="button"
-                                    onClick={() => pickVehicle(vehicle.key)}
-                                    aria-pressed={selectedVehicle === vehicle.key}
-                                    className={`flex flex-col items-center gap-0.5 rounded-2xl px-1 pb-2.5 pt-2 transition ${selectedVehicle === vehicle.key ? 'bg-volt' : 'bg-paper'}`}
-                                >
-                                    <VehicleArt art={vehicle.art} width={64} />
-                                    <strong className="text-sm font-semibold">{t(vehicle.nameKey)}</strong>
-                                    <span className="text-xs text-muted">{t(vehicle.noteKey)}</span>
-                                </button>
-                            ))}
+                    <div key="search" className="flex h-full flex-col gap-4 px-5 pb-6 pt-3 animate-fade-up">
+                        <div className="relative flex items-center justify-center">
+                            <span className="sheet-handle" aria-hidden="true" />
+                            <button
+                                type="button"
+                                onClick={closeSearch}
+                                aria-label="Close"
+                                className="absolute right-0 top-0 flex h-11 w-11 items-center justify-center rounded-full bg-paper"
+                            >
+                                <ChevronDown size={22} aria-hidden="true" />
+                            </button>
                         </div>
-                        {FEATURES.rideGuarantee ? (
-                            <div className="flex items-center gap-3 rounded-2xl bg-ink px-4 py-3 text-white">
-                                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-volt text-ink" aria-hidden="true">
-                                    ✓
-                                </span>
-                                <span className="text-[13px] leading-snug">{t('guarantee.home')}</span>
+
+                        <h1 className="font-display text-2xl font-semibold tracking-tight">{searchTitle}</h1>
+
+                        <form className="relative flex flex-col gap-2" onSubmit={(e) => e.preventDefault()}>
+                            <label
+                                className={`relative flex h-14 items-center gap-3 rounded-[14px] px-4 ${activeInput === 'pickup' ? 'bg-white ring-2 ring-ink' : 'bg-paper'}`}
+                            >
+                                {pickupIsCurrent ? (
+                                    <LocateFixed size={14} className="shrink-0 text-ink" aria-hidden="true" />
+                                ) : (
+                                    <span className="h-3.5 w-3.5 shrink-0 rounded-full border-[3px] border-ink bg-volt" aria-hidden="true" />
+                                )}
+                                <input
+                                    ref={pickupInputRef}
+                                    value={pickupIsCurrent ? (userLocation ? t('home.currentLocation') : '') : customPickup}
+                                    onFocus={(e) => {
+                                        setActiveInput('pickup');
+                                        if (pickupIsCurrent) e.target.select();
+                                    }}
+                                    onChange={(e) => {
+                                        setActiveInput('pickup');
+                                        setPickupMode('custom');
+                                        setCustomPickup(e.target.value);
+                                    }}
+                                    aria-label={t('home.pickup')}
+                                    placeholder={t('home.pickup')}
+                                    className={`min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-muted ${pickupIsCurrent ? 'font-semibold' : 'font-medium'}`}
+                                    type="text"
+                                />
+                            </label>
+                            <div className="flex gap-2">
+                                <label
+                                    className={`relative flex h-14 min-w-0 flex-1 items-center gap-3 rounded-[14px] px-4 ${activeInput === 'destination' ? 'bg-white ring-2 ring-ink' : 'bg-paper'}`}
+                                >
+                                    <span className="h-3.5 w-3.5 shrink-0 rounded-[3px] bg-ink" aria-hidden="true" />
+                                    <input
+                                        ref={destinationInputRef}
+                                        value={destination}
+                                        onFocus={() => setActiveInput('destination')}
+                                        onChange={(e) => {
+                                            setActiveInput('destination');
+                                            setDestination(e.target.value);
+                                        }}
+                                        aria-label={t('home.dropPlaceholder')}
+                                        placeholder={voice.listening ? t('home.listening') : t('home.dropPlaceholder')}
+                                        className="min-w-0 flex-1 bg-transparent text-base font-medium text-ink outline-none placeholder:text-muted"
+                                        type="text"
+                                    />
+                                </label>
+                                {micButton('h-14 w-14')}
                             </div>
-                        ) : null}
-                    </>
+                        </form>
+
+                        <div className="-mx-1 min-h-0 flex-1 overflow-y-auto">
+                            <LocationSearchPanel
+                                setPanelOpen={setPanelOpen}
+                                setVehiclePanel={setVehiclePanel}
+                                setPickup={(value) => {
+                                    setPickupMode('custom');
+                                    setCustomPickup(value);
+                                }}
+                                setDestination={chooseDestination}
+                                activeInput={activeInput}
+                                inputValue={activeInput === 'pickup' ? (pickupIsCurrent ? '' : customPickup) : destination}
+                                onPickupChosen={afterPickupChosen}
+                                onUseCurrentLocation={
+                                    userLocation
+                                        ? () => {
+                                            setPickupMode('current');
+                                            afterPickupChosen();
+                                        }
+                                        : undefined
+                                }
+                            />
+                        </div>
+                    </div>
                 )}
             </div>
+
+            <Sheet open={Boolean(voiceGuess)}>
+                {voiceGuess ? (
+                    <div className="flex flex-col gap-4">
+                        <span className="sheet-handle" aria-hidden="true" />
+                        <p className="text-sm text-muted">{t('voice.youSaid', { text: voiceGuess.text })}</p>
+                        <div className="flex items-start gap-3 rounded-2xl bg-paper p-4" aria-live="polite">
+                            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-ink text-volt" aria-hidden="true">
+                                <MapPin size={20} />
+                            </span>
+                            <div className="flex min-w-0 flex-col">
+                                <span className="text-xs text-muted">{t('voice.goingTo')}</span>
+                                <strong className="font-display text-[22px] font-semibold leading-tight">
+                                    {voiceGuess.place ? shortPlace(voiceGuess.place) : t('voice.finding')}
+                                </strong>
+                                {voiceGuess.place && voiceGuess.place !== shortPlace(voiceGuess.place) ? (
+                                    <span className="text-[13px] text-muted">{voiceGuess.place}</span>
+                                ) : null}
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            disabled={!voiceGuess.place}
+                            onClick={() => {
+                                const place = voiceGuess.place;
+                                setVoiceGuess(null);
+                                goToDestination(place);
+                            }}
+                            className="btn-volt gap-2"
+                        >
+                            <Check size={20} aria-hidden="true" />
+                            {t('voice.yes')}
+                        </button>
+                        <div className="grid grid-cols-2 gap-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setVoiceGuess(null);
+                                    voice.start();
+                                }}
+                                className="btn-ghost gap-2"
+                            >
+                                <RotateCcw size={18} aria-hidden="true" />
+                                {t('voice.again')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const text = voiceGuess.text;
+                                    setVoiceGuess(null);
+                                    setDestination(text);
+                                    openSearch('destination');
+                                }}
+                                className="btn-ghost gap-2"
+                            >
+                                <Pencil size={18} aria-hidden="true" />
+                                {t('voice.type')}
+                            </button>
+                        </div>
+                    </div>
+                ) : null}
+            </Sheet>
 
             <Sheet open={vehiclePanel}>
                 <VehiclePanel
@@ -342,6 +604,11 @@ const Home = () => {
                     distanceTime={distanceTime}
                     selectedVehicle={selectedVehicle}
                     setSelectedVehicle={setSelectedVehicle}
+                    nearby={nearby}
+                    onBack={() => {
+                        setVehiclePanel(false);
+                        setPanelOpen(true);
+                    }}
                 />
             </Sheet>
 
@@ -350,7 +617,7 @@ const Home = () => {
                     setConfirmRidePanel={setConfirmRidePanel}
                     setVehiclePanel={setVehiclePanel}
                     setLookingForDriverPanel={setLookingForDriverPanel}
-                    pickup={pickup}
+                    pickup={pickupLabel}
                     destination={destination}
                     fare={fare}
                     distanceTime={distanceTime}
@@ -363,7 +630,7 @@ const Home = () => {
                 <LookingForDriver
                     setLookingForDriverPanel={setLookingForDriverPanel}
                     setWaitingForDriver={setWaitingForDriver}
-                    pickup={pickup}
+                    pickup={pickupLabel}
                     destination={destination}
                     fare={fare}
                     distanceTime={distanceTime}

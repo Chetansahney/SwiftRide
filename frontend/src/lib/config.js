@@ -40,3 +40,13 @@ export function vehicleMeta(type) {
 }
 
 export const shortPlace = (place) => (place ? String(place).split(',')[0].trim() : '');
+
+// 180 → "200 m", 1340 → "1.3 km"
+export function formatDistance(meters) {
+    const value = Number(meters);
+    if (!Number.isFinite(value)) return '';
+    if (value < 1000) return `${Math.max(50, Math.round(value / 50) * 50)} m`;
+    return `${(value / 1000).toFixed(1)} km`;
+}
+
+export const isCoordinatePair = (value) => /^\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*$/.test(String(value || ''));

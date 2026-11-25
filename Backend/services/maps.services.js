@@ -108,3 +108,64 @@ module.exports.getCaptainsNearby = async (latitude, longitude, radius) => {
     console.log('Nearby found:', captains.length);
     return captains;
 };
+
+function distanceInMeters(lat1, lng1, lat2, lng2) {
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const earthRadius = 6371000;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return 2 * earthRadius * Math.asin(Math.sqrt(a));
+}
+
+// Distance in metres to the closest captain of each vehicle type within maxMeters
+// of a point, e.g. { moto: 210, auto: 480 }. Types with nobody nearby are left out.
+module.exports.getNearestCaptainsByType = async (latitude, longitude, maxMeters = 5000) => {
+    const captains = await captainModel
+        .find({
+            location: {
+                $near: {
+                    $geometry: { type: 'Point', coordinates: [longitude, latitude] },
+                    $maxDistance: maxMeters,
+                },
+            },
+        })
+        .select('vehicle.vehicleType location')
+        .limit(100);
+
+    const nearest = {};
+    for (const captain of captains) {
+        const rawType = captain.vehicle?.vehicleType;
+        const type = rawType === 'bike' ? 'moto' : rawType;
+        if (!type || nearest[type] !== undefined) continue;
+        const [lng, lat] = captain.location.coordinates;
+        nearest[type] = Math.round(distanceInMeters(latitude, longitude, lat, lng));
+    }
+    return nearest;
+};
+
+// Closest landmark of a given kind (e.g. the nearest Metro station) to a point,
+// using Places Nearby Search ranked by distance. Returns null if none is found.
+module.exports.getNearestPlace = async (latitude, longitude, type) => {
+    const apiKey = process.env.GOOGLE_MAPS_API;
+    if (!apiKey) {
+        throw new Error("GOOGLE_MAPS_API is not set.");
+    }
+    const response = await axios.get("https://maps.googleapis.com/maps/api/place/nearbysearch/json", {
+        params: {
+            location: `${latitude},${longitude}`,
+            rankby: "distance",
+            type,
+            key: apiKey,
+        },
+    });
+    const place = response.data?.results?.[0];
+    if (!place) {
+        return null;
+    }
+    return {
+        name: place.name,
+        address: [place.name, place.vicinity].filter(Boolean).join(", "),
+        type,
+    };
+};

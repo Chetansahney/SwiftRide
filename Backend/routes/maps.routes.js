@@ -25,4 +25,11 @@ router.get('/get-suggestions',
     mapController.getSuggestions
 );
 
+router.get('/nearest-transit',
+    query('lat').isFloat({ min: -90, max: 90 }).withMessage('Valid latitude is required'),
+    query('lng').isFloat({ min: -180, max: 180 }).withMessage('Valid longitude is required'),
+    authMiddleware.authUser,
+    mapController.getNearestTransit
+);
+
 module.exports = router;

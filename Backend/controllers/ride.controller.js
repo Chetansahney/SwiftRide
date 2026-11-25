@@ -70,6 +70,32 @@ module.exports.calculateFare=async (req,res)=>{
     }
 }
 
+// Pickup can be an address or "lat,lng" (the rider's current location).
+const COORDINATE_PAIR = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/;
+
+module.exports.getNearbyDrivers=async (req,res)=>{
+    const errors=validationResult(req);
+    if(!errors.isEmpty()){
+        return res.status(400).json({errors:errors.array()});
+    }
+    const { origin } = req.query;
+    try {
+        const match = String(origin).match(COORDINATE_PAIR);
+        const point = match
+            ? { latitude: parseFloat(match[1]), longitude: parseFloat(match[2]) }
+            : await mapservice.getLocationCoordinates(origin);
+        const nearest = await mapservice.getNearestCaptainsByType(point.latitude, point.longitude);
+        res.json({
+            moto: nearest.moto ?? null,
+            auto: nearest.auto ?? null,
+            car: nearest.car ?? null,
+        });
+    } catch (error) {
+        console.error("Error in getNearbyDrivers controller:", error.message || error);
+        res.status(500).json({ error: "An error occurred while finding nearby drivers." });
+    }
+}
+
 module.exports.confirmRide=async (req,res)=>{
 
     const errors=validationResult(req);
@@ -99,6 +125,21 @@ module.exports.confirmRide=async (req,res)=>{
     catch(error){
         console.error("Error in confirmRide controller:",error);
         res.status(500).json({error:"An error occurred while confirming the ride."});
+    }
+}
+
+// The signed-in rider's past rides, newest first, for the Account page.
+module.exports.getRideHistory=async (req,res)=>{
+    try {
+        const rides = await rideModel
+            .find({ user: req.user._id })
+            .sort({ createdAt: -1 })
+            .limit(50)
+            .populate('captain', 'name vehicle');
+        res.json(rides);
+    } catch (error) {
+        console.error('Error in getRideHistory controller:', error.message || error);
+        res.status(500).json({ error: 'An error occurred while fetching your rides.' });
     }
 }
 

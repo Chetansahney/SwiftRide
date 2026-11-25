@@ -12,6 +12,7 @@ import CaptainHome from './pages/CaptainHome';
 import CaptainProtectWrapper from './pages/CaptainProtectWrapper';
 import Riding from './pages/Riding';
 import CaptainRiding from './pages/CaptainRiding';
+import Account from './pages/Account';
 const App = () => {
   return (
     <div className="h-full">
@@ -20,6 +21,11 @@ const App = () => {
         <Route path="/home" element={
           <UserProtectWrapper>
             <Home />
+          </UserProtectWrapper>
+        } />
+        <Route path="/account" element={
+          <UserProtectWrapper>
+            <Account />
           </UserProtectWrapper>
         } />
         <Route path="/Userlogin" element={<Userlogin />} />

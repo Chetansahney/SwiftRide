@@ -19,4 +19,13 @@ router.post('/login',[body('email').isEmail().withMessage("Not a valid email add
 router.get('/profile',authMiddleware.authUser,userController.getUserProfile);
 router.get('/logout',authMiddleware.authUser,userController.logout);
 
+// Riders can update their own name and email from the Account page.
+router.patch('/profile',
+    authMiddleware.authUser,
+    body('name.firstname').optional().isLength({min:3}).withMessage("firstname should be at least 3 characters long"),
+    body('name.lastname').optional({ values: 'falsy' }).isLength({min:3}).withMessage("lastname should be at least 3 characters long"),
+    body('email').optional().isEmail().withMessage("Please enter a valid email address"),
+    userController.updateUserProfile
+);
+
 module.exports=router;

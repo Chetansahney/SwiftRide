@@ -23,6 +23,13 @@ router.get('/calculate-fare',
     rideController.calculateFare
 )
 
+// Distance from the pickup to the nearest available driver of each vehicle type.
+router.get('/nearby',
+    authMiddleware.authUser,
+    query('origin').not().isEmpty().withMessage('Origin is required'),
+    rideController.getNearbyDrivers
+)
+
 router.post('/confirm',
     authMiddleware.authCaptain,
     body('rideId').not().isEmpty().withMessage('Ride ID is required'),
@@ -46,6 +53,11 @@ router.post('/complete-payment',
     authMiddleware.authUser,
     body('rideId').not().isEmpty().withMessage('Ride ID is required'),
     rideController.completePayment
+)
+
+router.get('/history',
+    authMiddleware.authUser,
+    rideController.getRideHistory
 )
 
 router.get('/:rideId',

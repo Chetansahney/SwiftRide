@@ -1,11 +1,20 @@
 import React from 'react';
-import { ArrowRight, ChevronLeft } from 'lucide-react';
+import { ArrowRight, ChevronLeft, MapPin } from 'lucide-react';
 import VehicleArt from './ui/VehicleArt';
 import FareSplit from './ui/FareSplit';
 import { useLanguage } from '../i18n/LanguageContext';
-import { VEHICLES, formatFare } from '../lib/config';
+import { VEHICLES, formatDistance, formatFare } from '../lib/config';
 
-const VehiclePanel = ({ setVehiclePanel, setConfirmRidePanel, fare, distanceTime, selectedVehicle, setSelectedVehicle }) => {
+const VehiclePanel = ({
+    setVehiclePanel,
+    setConfirmRidePanel,
+    fare,
+    distanceTime,
+    selectedVehicle,
+    setSelectedVehicle,
+    nearby,
+    onBack,
+}) => {
     const { t } = useLanguage();
     const tripLine = distanceTime?.duration
         ? `${distanceTime.distance ? `${distanceTime.distance} · ` : ''}${distanceTime.duration}`
@@ -18,7 +27,7 @@ const VehiclePanel = ({ setVehiclePanel, setConfirmRidePanel, fare, distanceTime
             <div className="relative flex items-center justify-center">
                 <button
                     type="button"
-                    onClick={() => setVehiclePanel(false)}
+                    onClick={() => (onBack ? onBack() : setVehiclePanel(false))}
                     aria-label="Back"
                     className="absolute left-0 flex h-11 w-11 items-center justify-center rounded-full bg-paper"
                 >
@@ -50,6 +59,16 @@ const VehiclePanel = ({ setVehiclePanel, setConfirmRidePanel, fare, distanceTime
                             <span className="flex min-w-0 flex-1 flex-col">
                                 <strong className="text-[15px] font-semibold">{t(vehicle.nameKey)}</strong>
                                 <span className="text-xs text-muted">{t(vehicle.noteKey)}</span>
+                                {nearby ? (
+                                    <span
+                                        className={`mt-0.5 inline-flex items-center gap-1 text-xs font-semibold ${nearby[vehicle.key] == null ? 'text-muted' : 'text-ink'}`}
+                                    >
+                                        <MapPin size={12} aria-hidden="true" />
+                                        {nearby[vehicle.key] == null
+                                            ? t('ride.noneNearby')
+                                            : t('ride.fromPickup', { distance: formatDistance(nearby[vehicle.key]) })}
+                                    </span>
+                                ) : null}
                             </span>
                             <span className="font-display text-xl font-semibold">{formatFare(fare?.[vehicle.key])}</span>
                         </button>

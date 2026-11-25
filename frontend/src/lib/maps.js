@@ -139,3 +139,14 @@ export function useGeolocation() {
     }, []);
     return position;
 }
+
+// Turns the rider's GPS position into a street address using the Maps JS
+// Geocoder. Resolves to null if Maps isn't loaded or the lookup fails.
+export function reverseGeocode(position) {
+    const maps = window.google?.maps;
+    if (!maps?.Geocoder || !position) return Promise.resolve(null);
+    return new maps.Geocoder()
+        .geocode({ location: position })
+        .then((response) => response?.results?.[0]?.formatted_address || null)
+        .catch(() => null);
+}

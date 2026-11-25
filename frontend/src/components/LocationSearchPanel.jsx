@@ -1,9 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { MapPin } from 'lucide-react';
+import { LocateFixed, MapPin } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
 
-const LocationSearchPanel = ({ setPanelOpen, setVehiclePanel, setDestination, setPickup, activeInput, inputValue }) => {
+const LocationSearchPanel = ({
+    setPanelOpen,
+    setVehiclePanel,
+    setDestination,
+    setPickup,
+    activeInput,
+    inputValue,
+    onPickupChosen,
+    onUseCurrentLocation,
+}) => {
     const { t } = useLanguage();
     const [suggestions, setSuggestions] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -36,6 +45,7 @@ const LocationSearchPanel = ({ setPanelOpen, setVehiclePanel, setDestination, se
     const handleSuggestionClick = (description) => {
         if (activeInput === 'pickup') {
             setPickup(description);
+            onPickupChosen?.();
         } else if (activeInput === 'destination') {
             setDestination(description);
             setVehiclePanel(true);
@@ -43,16 +53,38 @@ const LocationSearchPanel = ({ setPanelOpen, setVehiclePanel, setDestination, se
         }
     };
 
+    const currentLocationRow =
+        activeInput === 'pickup' && onUseCurrentLocation ? (
+            <li>
+                <button
+                    type="button"
+                    onClick={onUseCurrentLocation}
+                    className="flex w-full items-center gap-3.5 rounded-xl px-1 py-3 text-left transition active:bg-paper"
+                >
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-volt text-ink" aria-hidden="true">
+                        <LocateFixed size={18} />
+                    </span>
+                    <strong className="text-[15px] font-semibold">{t('home.useCurrent')}</strong>
+                </button>
+            </li>
+        ) : null;
+
     if (loading) {
         return <p className="py-6 text-center text-sm text-muted">{t('home.searching')}</p>;
     }
 
     if (suggestions.length === 0 && inputValue?.trim().length >= 2) {
-        return <p className="py-6 text-center text-sm text-muted">{t('home.noResults')}</p>;
+        return (
+            <ul className="flex flex-col">
+                {currentLocationRow}
+                <li className="py-6 text-center text-sm text-muted">{t('home.noResults')}</li>
+            </ul>
+        );
     }
 
     return (
         <ul className="flex flex-col">
+            {currentLocationRow}
             {suggestions.map((suggestion, idx) => {
                 const text = suggestion.description || suggestion;
                 const [title, ...rest] = String(text).split(',');

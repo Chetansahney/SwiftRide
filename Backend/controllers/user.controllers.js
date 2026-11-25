@@ -52,3 +52,29 @@ module.exports.logout=async (req,res,next)=>{
     await blacklistTokenModel.create({token});//blacklisting the token by saving it to the blacklistTokens collection in the database
     res.status(200).json({message:"Logged out successfully"});
 }
+
+module.exports.updateUserProfile=async (req,res)=>{
+    const errors=validationResult(req);
+    if(!errors.isEmpty()){
+        return res.status(400).json({errors:errors.array()});
+    }
+    const { name, email } = req.body;
+    const updates = {};
+    if (name?.firstname) updates['name.firstname'] = name.firstname.trim();
+    if (name && 'lastname' in name) updates['name.lastname'] = (name.lastname || '').trim();
+    if (email) {
+        const normalised = email.trim().toLowerCase();
+        const taken = await userModel.findOne({ email: normalised, _id: { $ne: req.user._id } });
+        if (taken) {
+            return res.status(400).json({ message: "This email is already used by another account" });
+        }
+        updates.email = normalised;
+    }
+    try {
+        const user = await userModel.findByIdAndUpdate(req.user._id, { $set: updates }, { new: true, runValidators: true });
+        res.status(200).json(user);
+    } catch (error) {
+        console.error("Error updating profile:", error.message || error);
+        res.status(400).json({ message: "Could not update your profile" });
+    }
+}

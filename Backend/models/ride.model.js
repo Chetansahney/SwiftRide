@@ -54,6 +54,17 @@ const rideSchema=new mongoose.Schema({
         type: String
     }
     ,
+    // 1–5 stars: the captain's rating of the rider, and the rider's rating of the captain.
+    userRating:{
+        type: Number,
+        min: 1,
+        max: 5
+    },
+    captainRating:{
+        type: Number,
+        min: 1,
+        max: 5
+    },
     otp:{
         type: String,
         select : false,
