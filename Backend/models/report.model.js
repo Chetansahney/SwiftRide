@@ -19,4 +19,7 @@ const reportSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now },
 });
 
+// One report of each kind per ride.
+reportSchema.index({ ride: 1, type: 1 }, { unique: true });
+
 module.exports = mongoose.model('Report', reportSchema);

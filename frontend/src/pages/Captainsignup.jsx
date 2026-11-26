@@ -92,7 +92,8 @@ const Captainsignup = () => {
                 <label className="label" htmlFor="password">
                     {t('auth.password')}
                 </label>
-                <input id="password" required minLength={6} className="field mb-7" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                <input id="password" required minLength={8} maxLength={72} pattern="(?=.*[A-Za-z])(?=.*\d).{8,72}" title={t('auth.passwordHint')} aria-describedby="passwordHint" className="field" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                <span id="passwordHint" className="mb-7 mt-1.5 text-xs text-muted">{t('auth.passwordHint')}</span>
 
                 <div role="radiogroup" aria-label={t('captain.gender')} className="mb-7 flex flex-col gap-2">
                     <span className="label mb-0">{t('captain.gender')}</span>

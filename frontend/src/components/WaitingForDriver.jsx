@@ -4,6 +4,7 @@ import VehicleArt from './ui/VehicleArt';
 import NumberPlate from './ui/NumberPlate';
 import WomanIcon from './ui/WomanIcon';
 import FareLockedBanner from './safety/FareLockedBanner';
+import CancelRideButton from './CancelRideButton';
 import { useLanguage } from '../i18n/LanguageContext';
 import { FREE_WAIT_MIN, WAIT_PER_MIN, formatFare, shortPlace, vehicleMeta } from '../lib/config';
 import { currentPosition, riderPost } from '../lib/api';
@@ -19,7 +20,7 @@ function useFreeWaitLeft(arrivedAt) {
     return Math.max(0, FREE_WAIT_MIN * 60 - Math.floor((now - new Date(arrivedAt).getTime()) / 1000));
 }
 
-const WaitingForDriver = ({ ride, otp, setWaitingForDriver, onShare, onReport, onSos }) => {
+const WaitingForDriver = ({ ride, otp, setWaitingForDriver, onShare, onReport, onSos, onCancel }) => {
     const { t } = useLanguage();
     const [verified, setVerified] = useState(null);
     const captain = ride?.captain;
@@ -183,6 +184,8 @@ const WaitingForDriver = ({ ride, otp, setWaitingForDriver, onShare, onReport, o
                     {t('ride.sos')}
                 </button>
             </div>
+
+            {onCancel && ['requested', 'accepted'].includes(ride?.status || 'requested') ? <CancelRideButton onConfirm={onCancel} /> : null}
         </div>
     );
 };

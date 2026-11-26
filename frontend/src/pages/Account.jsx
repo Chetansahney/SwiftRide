@@ -12,6 +12,7 @@ import { formatFare, isCoordinatePair, shortPlace, vehicleMeta } from '../lib/co
 import { addCustomPlace, clearPlaces, getSavedPlaces, removeCustomPlace, removePlace, savePlace } from '../lib/places';
 import SavePlaceSheet from '../components/SavePlaceSheet';
 import SafetySettings from '../components/safety/SafetySettings';
+import AccountSecurity from '../components/AccountSecurity';
 
 const API = import.meta.env.VITE_BASE_URL;
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('userToken')}` });
@@ -389,6 +390,10 @@ const Account = () => {
 
                 <Section title={t('lang.label')}>
                     <LanguagePicker dark={false} />
+                </Section>
+
+                <Section title={t('account.password')}>
+                    <AccountSecurity onLoggedOut={() => window.location.replace('/Userlogin')} />
                 </Section>
 
                 <Link to="/user/logout" className="btn-ghost gap-2 border-signal/30 text-signal">

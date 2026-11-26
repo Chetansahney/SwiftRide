@@ -3,6 +3,8 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import RouteSummary from './RouteSummary';
+import RateRideSheet from './RateRideSheet';
+import { captainPost } from '../lib/api';
 import { useLanguage } from '../i18n/LanguageContext';
 import { formatFare } from '../lib/config';
 
@@ -10,6 +12,7 @@ const FinishRide = ({ ride, onClose }) => {
     const { t } = useLanguage();
     const [swipeValue, setSwipeValue] = useState(0);
     const [isEnding, setIsEnding] = useState(false);
+    const [rating, setRating] = useState(false);
     const navigate = useNavigate();
     const riderName = [ride?.user?.name?.firstname, ride?.user?.name?.lastname].filter(Boolean).join(' ') || t('captain.rider');
 
@@ -33,7 +36,8 @@ const FinishRide = ({ ride, onClose }) => {
             )
             .then(() => {
                 localStorage.removeItem('activeRide');
-                navigate('/captainhome');
+                // Rate the rider, then back to the home screen.
+                setRating(true);
             })
             .catch((error) => {
                 console.error('Failed to end ride:', error.response?.data || error.message);
@@ -91,6 +95,15 @@ const FinishRide = ({ ride, onClose }) => {
             </div>
 
             <p className="text-center text-xs text-night-muted">{t('captain.finishNote')}</p>
+
+            <RateRideSheet
+                dark
+                withComment={false}
+                open={rating}
+                title={t('rate.riderTitle', { name: ride?.user?.name?.firstname || t('captain.rider') })}
+                submit={(stars) => captainPost(`/rides/${ride._id}/rate-rider`, { stars })}
+                onDone={() => navigate('/captainhome')}
+            />
         </div>
     );
 };

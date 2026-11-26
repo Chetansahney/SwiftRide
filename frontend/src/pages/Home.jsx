@@ -71,6 +71,13 @@ const Home = () => {
     const [confirmedRide, setConfirmedRide] = useState(null);
     const [rideOtp, setRideOtp] = useState(null);
     const [ride, setRide] = useState(null);
+    // Short message at the top of the map (ride cancelled, captain dropped, ...).
+    const [notice, setNotice] = useState(null);
+    useEffect(() => {
+        if (!notice) return undefined;
+        const timer = setTimeout(() => setNotice(null), 6000);
+        return () => clearTimeout(timer);
+    }, [notice]);
 
     // Safety: "I'm a woman travelling" lives on the profile (falls back to this
     // device before the profile loads), plus the share / SOS / report sheets.
@@ -278,11 +285,21 @@ const Home = () => {
             setRide(arrived);
             setConfirmedRide(arrived);
         };
+        // The captain dropped the ride: it's already been offered to others at the same fare.
+        const handleRequeued = (requeued) => {
+            setConfirmedRide(null);
+            setRide(requeued || null);
+            setWaitingForDriver(false);
+            setLookingForDriverPanel(true);
+            setNotice(requeued?.guaranteeCredit ? { key: 'ride.requeuedCredit', vars: { amount: requeued.guaranteeCredit } } : 'ride.requeued');
+        };
         socket.on('ride-confirmed', handleRideConfirmed);
         socket.on('captain-arrived', handleCaptainArrived);
+        socket.on('ride-requeued', handleRequeued);
         return () => {
             socket.off('ride-confirmed', handleRideConfirmed);
             socket.off('captain-arrived', handleCaptainArrived);
+            socket.off('ride-requeued', handleRequeued);
         };
     }, []);
 
@@ -312,9 +329,13 @@ const Home = () => {
     }, [user, setUser]);
 
     useEffect(() => {
-        if (!user?._id) return;
-        socket.emit('join', { userId: user._id, userType: 'user' });
-    }, [user]);
+        if (!user?._id) return undefined;
+        // The server identifies us by the login token; re-join after every reconnect.
+        const join = () => socket.emit('join', { token: localStorage.getItem('userToken'), userType: 'user' });
+        join();
+        socket.on('connect', join);
+        return () => socket.off('connect', join);
+    }, [user?._id]);
 
     useEffect(() => {
         if (!waitingForDriver || !ride?._id) return;
@@ -392,8 +413,29 @@ const Home = () => {
             return response.data.ride;
         } catch (error) {
             console.error('Error creating ride:', error.response?.data || error.message);
+            if (error.response?.status === 409) setNotice('ride.alreadyActive');
             return null;
         }
+    }
+
+    // Free before the ride starts. Clears the booking so the rider can book again.
+    async function cancelRide() {
+        const current = ride || confirmedRide || createdRide;
+        if (!current?._id) return;
+        try {
+            await axios.post(`${API}/rides/${current._id}/cancel`, { reason: 'rider_cancelled' }, { headers: authHeaders() });
+        } catch (error) {
+            // Already started or ended: keep showing the ride.
+            if (error.response?.status === 409) return;
+        }
+        setLookingForDriverPanel(false);
+        setWaitingForDriver(false);
+        setRide(null);
+        setCreatedRide(null);
+        setConfirmedRide(null);
+        setRideOtp(null);
+        localStorage.removeItem('activeRide');
+        setNotice('ride.cancelled');
     }
 
     const searchHidden = vehiclePanel || confirmRidePanel || lookingForDriverPanel || waitingForDriver || Boolean(voiceGuess);
@@ -428,6 +470,12 @@ const Home = () => {
             <div className="absolute inset-0 z-0">
                 <LiveTracking />
             </div>
+
+            {notice ? (
+                <div role="status" className="fixed inset-x-4 top-4 z-[60] mx-auto max-w-xl rounded-2xl bg-ink px-4 py-3 text-sm font-medium text-white shadow-float">
+                    {typeof notice === 'string' ? t(notice) : t(notice.key, notice.vars)}
+                </div>
+            ) : null}
 
             <div className="absolute inset-x-5 top-6 z-10 mx-auto flex max-w-xl items-center justify-between gap-2">
                 <span className="flex h-12 items-center rounded-full bg-white px-4 shadow-float">
@@ -773,6 +821,7 @@ const Home = () => {
                     fare={fare}
                     distanceTime={distanceTime}
                     selectedVehicle={selectedVehicle}
+                    onCancel={cancelRide}
                 />
             </Sheet>
 
@@ -785,6 +834,7 @@ const Home = () => {
                     onShare={() => setShareSheet('manual')}
                     onReport={() => setReportOpen(true)}
                     onSos={() => setSosOpen(true)}
+                    onCancel={cancelRide}
                 />
             </Sheet>
 

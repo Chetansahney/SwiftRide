@@ -1,12 +1,12 @@
 // Product switches for the new UI.
 //
-// rideGuarantee: shows the "₹50 back if your driver cancels" promise. Keep this
-//   off until the backend actually issues guarantee credits — otherwise the app
-//   promises riders money it can't pay.
+// rideGuarantee: shows the "₹50 back if your driver cancels" promise. Only on
+//   because the backend really issues that credit (cancelRide in
+//   Backend/services/ride.services.js) and spends it at the next payment.
 // fareSplit: shows the "Where your fare goes" bar. The split is computed on the
 //   client from FARE_SPLIT below until the backend stores a real breakdown.
 export const FEATURES = {
-    rideGuarantee: false,
+    rideGuarantee: true,
     fareSplit: true,
 };
 

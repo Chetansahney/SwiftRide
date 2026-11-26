@@ -1,10 +1,11 @@
 import React from 'react';
 import VehicleArt from './ui/VehicleArt';
 import RouteSummary from './RouteSummary';
+import CancelRideButton from './CancelRideButton';
 import { useLanguage } from '../i18n/LanguageContext';
 import { formatFare, vehicleMeta } from '../lib/config';
 
-const LookingForDriver = ({ setLookingForDriverPanel, pickup, destination, fare, selectedVehicle }) => {
+const LookingForDriver = ({ setLookingForDriverPanel, pickup, destination, fare, selectedVehicle, onCancel }) => {
     const { t } = useLanguage();
     const vehicle = vehicleMeta(selectedVehicle);
     const rideFare = fare?.[selectedVehicle];
@@ -45,6 +46,8 @@ const LookingForDriver = ({ setLookingForDriverPanel, pickup, destination, fare,
                 </span>
                 <strong className="font-display text-xl font-semibold">{formatFare(rideFare)}</strong>
             </div>
+
+            {onCancel ? <CancelRideButton onConfirm={onCancel} /> : null}
         </div>
     );
 };

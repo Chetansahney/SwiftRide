@@ -23,6 +23,14 @@ const CaptainRiding = () => {
         }
     });
 
+    // Identify this socket with the login token (again after any reconnect).
+    useEffect(() => {
+        const join = () => socket.emit('join', { token: localStorage.getItem('captainToken'), userType: 'captain' });
+        join();
+        socket.on('connect', join);
+        return () => socket.off('connect', join);
+    }, []);
+
     // Keep sending live location during the trip: it feeds the rider's map and
     // the live link shared with their trusted contacts.
     useEffect(() => {
@@ -31,7 +39,6 @@ const CaptainRiding = () => {
             navigator.geolocation.getCurrentPosition(
                 (position) =>
                     socket.emit('update-location-captain', {
-                        userId: captain._id,
                         rideId: ride._id,
                         location: { lat: position.coords.latitude, lng: position.coords.longitude },
                     }),

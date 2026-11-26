@@ -8,7 +8,7 @@ import NumberPlate from './ui/NumberPlate';
 import ShiftSelfieGate from './captain/ShiftSelfieGate';
 import CaptainSafetySettings from './captain/CaptainSafetySettings';
 import { useLanguage } from '../i18n/LanguageContext';
-import { vehicleMeta } from '../lib/config';
+import { formatFare, vehicleMeta } from '../lib/config';
 import { API, captainAuth } from '../lib/api';
 
 const CaptainDetails = () => {
@@ -17,6 +17,15 @@ const CaptainDetails = () => {
     const [error, setError] = useState(null);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [verification, setVerification] = useState(null);
+    const [stats, setStats] = useState(null);
+
+    // Today's earnings and rides, and the riders' average rating.
+    useEffect(() => {
+        axios
+            .get(`${API}/rides/captain/stats`, captainAuth())
+            .then(({ data }) => setStats(data))
+            .catch((fetchError) => console.error('Stats fetch failed:', fetchError));
+    }, []);
 
     // Verification + this shift window's face check. Re-checks when the window ends.
     useEffect(() => {
@@ -66,10 +75,10 @@ const CaptainDetails = () => {
     const status = verification?.status;
     const shift = verification?.shift;
     const strikes = captain?.strikes || 0;
-    const stats = [
-        { label: t('captain.hours'), value: captain?.stats?.hoursOnline ?? '--' },
-        { label: t('captain.rides'), value: captain?.stats?.totalRides ?? '--' },
-        { label: t('captain.rating'), value: captain?.stats?.rating ?? '--' },
+    const statTiles = [
+        { label: t('captain.earnings'), value: stats ? formatFare(stats.today.earnings) : '--' },
+        { label: t('captain.ridesToday'), value: stats?.today.rides ?? '--' },
+        { label: t('captain.rating'), value: stats?.rating ? `${stats.rating} ★` : '--' },
     ];
 
     return (
@@ -128,7 +137,7 @@ const CaptainDetails = () => {
             </div>
 
             <div className="grid grid-cols-3 gap-2">
-                {stats.map((stat) => (
+                {statTiles.map((stat) => (
                     <div key={stat.label} className="flex flex-col gap-1 rounded-[18px] bg-night-card p-3">
                         <span className="text-[11px] text-night-muted">{stat.label}</span>
                         <strong className="font-display text-xl font-semibold">{stat.value}</strong>

@@ -14,14 +14,31 @@ node server.js
 
 ```
 PORT=3000
+NODE_ENV=production
 DB_CONNECT=your_mongodb_uri
-JWT_SECRET=your_jwt_secret
+# At least 32 random characters. In production the server refuses to start without it.
+JWT_SECRET=your_long_random_secret
+# Websites allowed to call the API (comma-separated). Required: without it the app can't reach the API.
+CORS_ORIGINS=https://swiftride-red.vercel.app
 GOOGLE_MAPS_API=your_google_maps_api_key
 # Licence/vehicle checks. Only "test" exists until a DigiLocker/KYC provider is signed up.
 VERIFICATION_PROVIDER=test
 # Long random string; reviewers enter it on /admin/review. Admin routes are off without it.
 ADMIN_KEY=your_admin_key
 ```
+
+## Security
+
+- **Logins:** tokens carry the account's role (rider or captain) and a version number. Logging out, changing a password or "log out on all devices" revokes them. Logged-out tokens are stored only as hashes. Logins never reveal whether an email has an account.
+- **Passwords:** 8–72 characters, with a letter and a number, hashed with bcrypt (cost 12).
+- **Requests:** security headers (helmet), CORS limited to `CORS_ORIGINS`, and rate limits. Logins and sign-ups allow 20 failures per 15 minutes; map and face-check calls are limited separately. Every input is validated, MongoDB operator injection (`$ne`, `$gt`…) is blocked, and errors never include internal details.
+- **Live updates (Socket.IO):** a socket must prove who it is with its login token. Captains can only move themselves, at most one update every 2 seconds, and locations only reach the rider of their own active ride.
+- **Rides:** each step (accept → arrive → start → end → pay) only works from the right previous step and for the right person, as a single atomic update. The ride PIN allows 5 tries. A rider has one active ride at a time, a captain holds one ride at a time, and unanswered requests expire after 10 minutes.
+- **Abuse limits:** one report of each kind per ride. "Wrong driver" can only be reported at pickup. Ride Guarantee credit is capped at 3 times a week per rider, and every third ride a captain drops is a strike.
+
+## Tests
+
+`npm test` runs 36 tests against a throwaway in-memory MongoDB, covering security, the ride lifecycle, sockets, ratings and Ride Guarantee. Google Maps is stubbed. GitHub Actions (`.github/workflows/ci.yml`) runs them, plus a dependency audit and the frontend lint and build, on every push.
 
 ## Captain verification
 

@@ -1,6 +1,6 @@
 const mongoose=require('mongoose');
 const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
+const { signToken } = require('../utils/tokens');
 const captainSchema = new mongoose.Schema({
     name: {
         firstname: {
@@ -17,7 +17,10 @@ const captainSchema = new mongoose.Schema({
         type: String,
         required: true,
         unique: true,
-        match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, "Please enter a valid email address"]
+        lowercase: true,
+        trim: true,
+        maxlength: 254,
+        match: [/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/, "Please enter a valid email address"]
     },
     password: {
         type: String,
@@ -30,7 +33,8 @@ const captainSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ["available", "unavailable"],
+        // "busy" while on a ride, so they aren't offered another one.
+        enum: ["available", "unavailable", "busy"],
         default: "unavailable"
     },
     vehicle: {
@@ -58,6 +62,13 @@ const captainSchema = new mongoose.Schema({
     // Strikes from "driver asked for extra" and similar reports; paused for review when suspended.
     strikes: { type: Number, default: 0 },
     suspended: { type: Boolean, default: false },
+    // Accepted rides the captain dropped before pickup.
+    cancellations: { type: Number, default: 0 },
+    // Last live location update; captains silent for 2 minutes aren't offered rides.
+    lastSeenAt: Date,
+    // Rider ratings (1–5) of this captain.
+    ratingTotal: { type: Number, default: 0 },
+    ratingCount: { type: Number, default: 0 },
     // Selfie for the current shift window (6 AM–2 PM, 2 PM–10 PM, 10 PM–6 AM IST),
     // face-matched against the verified reference. Shown to riders.
     shiftSelfie: {
@@ -129,15 +140,30 @@ const captainSchema = new mongoose.Schema({
 
 captainSchema.index({ location: '2dsphere' });
 
-captainSchema.methods.generateAuthToken=function(){const token=jwt.sign({_id:this._id},process.env.JWT_SECRET,{expiresIn:'24h'});
-return token;}
+// Bumped on password change / "log out everywhere" to revoke older tokens.
+captainSchema.add({ tokenVersion: { type: Number, default: 0 } });
+
+captainSchema.methods.generateAuthToken=function(){
+    return signToken('captain', this);
+}
+
+// Never send secrets or internal fields to clients.
+captainSchema.set('toJSON', {
+    transform(doc, ret) {
+        delete ret.password;
+        delete ret.socketId;
+        delete ret.tokenVersion;
+        delete ret.__v;
+        return ret;
+    },
+});
 
 captainSchema.methods.comparePassword=async function(password){
     return await bcrypt.compare(password,this.password);
 }
 
 captainSchema.statics.hashPassword=async function(password){
-    return await bcrypt.hash(password,10);
+    return await bcrypt.hash(password,12);
 }
 
 const Captain=mongoose.model('Captain',captainSchema);

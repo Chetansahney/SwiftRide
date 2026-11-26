@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { Clock, MapPinCheck, X } from 'lucide-react';
 import FareLockedBanner from './safety/FareLockedBanner';
 import RouteSummary from './RouteSummary';
+import CancelRideButton from './CancelRideButton';
 import { useLanguage } from '../i18n/LanguageContext';
 import { FREE_WAIT_MIN, WAIT_PER_MIN, formatFare } from '../lib/config';
 import { captainPost } from '../lib/api';
@@ -150,17 +151,24 @@ const ConfirmRidePopUp = (props) => {
 
             <RouteSummary pickup={props.ride?.origin} destination={props.ride?.destination} dark />
 
-            <div className="flex gap-2.5">
-                <button
-                    type="button"
-                    onClick={() => {
+            {/* Releasing sends the ride straight to another captain, so the rider isn't stranded. */}
+            {!verified ? (
+                <CancelRideButton
+                    dark
+                    label="captain.dropRide"
+                    question="captain.dropConfirm"
+                    yes="captain.dropYes"
+                    no="ride.keep"
+                    onConfirm={async () => {
+                        if (props.ride?._id) await captainPost(`/rides/${props.ride._id}/captain-cancel`, { reason: 'captain_released' }).catch(() => {});
+                        localStorage.removeItem('activeRide');
                         props.setconfirmRidePopUp(false);
                         props.setRidePopUp(false);
                     }}
-                    className="h-14 rounded-2xl border border-night-edge px-5 text-sm font-medium text-white"
-                >
-                    {t('captain.cancel')}
-                </button>
+                />
+            ) : null}
+
+            <div className="flex gap-2.5">
                 <Link
                     to="/captain-riding"
                     onClick={() => {

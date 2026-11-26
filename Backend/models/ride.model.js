@@ -44,7 +44,11 @@ const rideSchema=new mongoose.Schema({
         nightFee: { type: Number, default: 0 },
         waitingFee: { type: Number, default: 0 },
         tip: { type: Number, default: 0 },
+        // Wallet credit used for this ride (SwiftRide pays it; the captain still gets the full fare).
+        creditUsed: { type: Number, default: 0 },
     },
+    // Ride Guarantee: ₹50 credited once if a captain drops this ride after accepting.
+    guaranteeCredited: { type: Boolean, default: false },
     status: {
         type: String,
         enum: ['requested', 'accepted','ongoing', 'completed', 'cancelled'],
@@ -52,7 +56,7 @@ const rideSchema=new mongoose.Schema({
     },
     paymentStatus: {
         type: String,
-        enum: ['pending', 'paid'],
+        enum: ['pending', 'paid', 'not_charged'],
         default: 'pending'
     },
     createdAt: {
@@ -103,7 +107,23 @@ const rideSchema=new mongoose.Schema({
         type: String,
         select : false,
         required: true
-    }
-});
+    },
+    // Wrong PIN tries; the ride can't be started after 5.
+    otpAttempts: { type: Number, default: 0, select: false },
+    // When the ride was last offered to captains (re-set if a captain drops it).
+    requestedAt: { type: Date, default: Date.now },
+    cancelledAt: Date,
+    cancelledBy: { type: String, enum: ['rider', 'captain', 'system'] },
+    cancelReason: { type: String, maxlength: 200 },
+    // Captains who dropped or let this request expire; it isn't offered to them again.
+    declinedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Captain' }],
+    ratingComment: { type: String, maxlength: 300 },
+}, { timestamps: { createdAt: false, updatedAt: true } });
+
+// History pages and "do you already have a ride?" checks.
+rideSchema.index({ user: 1, createdAt: -1 });
+rideSchema.index({ captain: 1, createdAt: -1 });
+rideSchema.index({ user: 1, status: 1 });
+rideSchema.index({ captain: 1, status: 1 });
 
 module.exports=mongoose.model('ride',rideSchema);

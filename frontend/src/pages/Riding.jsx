@@ -7,6 +7,7 @@ import RouteSummary from '../components/RouteSummary';
 import VehicleArt from '../components/ui/VehicleArt';
 import NumberPlate from '../components/ui/NumberPlate';
 import FareSplit from '../components/ui/FareSplit';
+import RateRideSheet from '../components/RateRideSheet';
 import BottomSheet from '../components/ui/BottomSheet';
 import FareLockedBanner from '../components/safety/FareLockedBanner';
 import ShareTripSheet from '../components/safety/ShareTripSheet';
@@ -42,6 +43,17 @@ const Riding = () => {
     const [reportOpen, setReportOpen] = useState(false);
     const [askReached, setAskReached] = useState(false);
     const [alertNotice, setAlertNotice] = useState('');
+    const [rating, setRating] = useState(false);
+    // Wallet credit (refunds, Ride Guarantee) is taken off at payment.
+    const [walletCredit, setWalletCredit] = useState(0);
+    useEffect(() => {
+        axios
+            .get(`${API}/users/profile`, riderAuth())
+            .then(({ data }) => setWalletCredit(Math.floor(data?.walletCredit || 0)))
+            .catch(() => {});
+    }, []);
+    const total = (Number(ride?.fare) || 0) + tip;
+    const creditUsed = Math.min(walletCredit, total);
     const { position } = useLocation();
 
     const ended = ride?.status === 'completed';
@@ -92,7 +104,8 @@ const Riding = () => {
         try {
             await axios.post(`${API}/rides/complete-payment`, { rideId: ride._id, tip: tip || undefined }, riderAuth());
             localStorage.removeItem('activeRide');
-            navigate('/home');
+            // Ask for a rating before going home (skippable).
+            setRating(true);
         } catch (error) {
             console.error('Payment failed:', error.response?.data || error.message);
         } finally {
@@ -189,12 +202,26 @@ const Riding = () => {
                     <span className="text-xs text-muted">{t('tip.note')}</span>
                 </div>
 
+                {creditUsed > 0 ? (
+                    <div className="flex items-center justify-between rounded-2xl bg-volt/30 px-4 py-3 text-sm font-semibold">
+                        <span>{t('fare.walletCredit')}</span>
+                        <span>−{formatFare(creditUsed)}</span>
+                    </div>
+                ) : null}
+
                 <button type="button" onClick={pay} disabled={isPaying || !ride?._id} className="btn-volt mt-auto shrink-0">
-                    {isPaying ? t('ride.paying') : t('ride.pay', { fare: formatFare((Number(ride?.fare) || 0) + tip) })}
+                    {isPaying ? t('ride.paying') : t('ride.pay', { fare: formatFare(total - creditUsed) })}
                 </button>
             </div>
 
             <CheckInSheet reason={monitor.trigger} onAnswer={answerCheckIn} />
+
+            <RateRideSheet
+                open={rating}
+                title={t('rate.title', { name: ride?.captain?.name?.firstname || t('ride.driver') })}
+                submit={(stars, comment) => riderPost(`/rides/${ride._id}/rate`, { stars, comment: comment || undefined })}
+                onDone={() => navigate('/home')}
+            />
 
             <BottomSheet open={askReached} onClose={() => setAskReached(false)} title={t('safety.reachedTitle')} dismissable={false}>
                 {ride?.safety?.endedAwayFromDrop ? (

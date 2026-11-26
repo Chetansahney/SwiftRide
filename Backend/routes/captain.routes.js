@@ -1,38 +1,49 @@
-const express=require('express');
-const router=express.Router();
-const captainController=require('../controllers/captain.controller');
-const {body}=require('express-validator');
-const authMiddleware=require('../middleware/auth.middleware');
-const verificationController=require('../controllers/verification.controller');
+const express = require('express');
+const { body } = require('express-validator');
+const captainController = require('../controllers/captain.controller');
+const verificationController = require('../controllers/verification.controller');
+const { authCaptain } = require('../middleware/auth.middleware');
+const { authLimiter, faceLimiter } = require('../middleware/security.middleware');
+const { passwordRule, emailRule, nameRule, loginRules, validate } = require('../utils/validators');
+const { PLATE_PATTERN, normalise } = require('../services/verificationProvider');
 
-router.post('/register',[body('name').isLength({min:3}).withMessage("Name should be at least 3 characters long"),
-body('email').isEmail().withMessage("Please enter a valid email address"),
-body('password').isLength({min:6}).withMessage("Password should be at least 6 characters long"),body('vehicle.color').notEmpty().withMessage("Vehicle color is required"),
-body('vehicle.model').notEmpty().withMessage("Vehicle model is required"),
-body('vehicle.plate').notEmpty().withMessage("Vehicle plate is required"),
-body('vehicle.capacity').isInt({min:1}).withMessage("Vehicle capacity must be at least 1"),
-body('vehicle.vehicleType').isIn(["car","bike","moto","auto"]).withMessage("Vehicle type must be either car, bike, moto or auto")],captainController.register);
+const router = express.Router();
 
+router.post('/register',
+    authLimiter,
+    nameRule('name.firstname'),
+    nameRule('name.lastname', { optional: true }),
+    emailRule(),
+    passwordRule(),
+    body('vehicle.color').isString().trim().isLength({ min: 2, max: 30 }).withMessage('Vehicle color is required'),
+    body('vehicle.model').isString().trim().isLength({ min: 2, max: 40 }).withMessage('Vehicle model is required'),
+    body('vehicle.plate').isString().custom((plate) => PLATE_PATTERN.test(normalise(plate))).withMessage('Enter a vehicle number like WB02AK4417'),
+    body('vehicle.capacity').isInt({ min: 1, max: 8 }).withMessage('Vehicle capacity must be 1 to 8').toInt(),
+    body('vehicle.vehicleType').isIn(['car', 'bike', 'moto', 'auto']).withMessage('Vehicle type must be car, bike, moto or auto'),
+    body('gender').optional({ values: 'falsy' }).isIn(['female', 'male', 'other']),
+    validate,
+    captainController.register
+);
+router.post('/login', authLimiter, loginRules, validate, captainController.loginCaptain);
 
-router.post('/login',[body('email').isEmail().withMessage("Please enter a valid email address"),
-body('password').isLength({min:6}).withMessage("Password should be at least 6 characters long")],captainController.loginCaptain);
-
-
-router.get('/profile', authMiddleware.authCaptain, captainController.getCaptainProfile);
-
-router.get('/logout', authMiddleware.authCaptain, captainController.logoutCaptain);
+router.get('/profile', authCaptain, captainController.getCaptainProfile);
+router.post('/logout', authCaptain, captainController.logoutCaptain);
+router.get('/logout', authCaptain, captainController.logoutCaptain);
+router.post('/logout-all', authCaptain, captainController.logoutAll);
+router.post('/password', authLimiter, authCaptain, body('currentPassword').isString().isLength({ min: 1, max: 72 }), passwordRule('newPassword'), validate, captainController.changePassword);
+router.delete('/profile', authCaptain, captainController.deleteAccount);
 
 // Identity check (licence + vehicle + face) and the face check for each shift window.
-router.get('/verification', authMiddleware.authCaptain, verificationController.getVerification);
-router.post('/verification', authMiddleware.authCaptain, verificationController.submitVerification);
-router.post('/shift-selfie', authMiddleware.authCaptain, verificationController.uploadShiftSelfie);
+router.get('/verification', authCaptain, verificationController.getVerification);
+router.post('/verification', faceLimiter, authCaptain, verificationController.submitVerification);
+router.post('/shift-selfie', faceLimiter, authCaptain, verificationController.uploadShiftSelfie);
 
 router.patch('/settings',
-    authMiddleware.authCaptain,
-    body('gender').optional({ values: 'null' }).isIn(['female', 'male', 'other', '']).withMessage("Gender must be female, male or other"),
+    authCaptain,
+    body('gender').optional({ values: 'null' }).isIn(['female', 'male', 'other', '']).withMessage('Gender must be female, male or other'),
     body('womenRidersOnly').optional().isBoolean(),
+    validate,
     captainController.updateSettings
 );
 
-
-module.exports=router;
+module.exports = router;

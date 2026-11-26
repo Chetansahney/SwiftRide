@@ -1,6 +1,6 @@
 const mongoose=require('mongoose');
 const bcrypt=require('bcrypt');
-const jwt=require('jsonwebtoken');
+const { signToken } = require('../utils/tokens');
 
 
 const userSchema=new mongoose.Schema({
@@ -20,7 +20,10 @@ const userSchema=new mongoose.Schema({
         type:String,
         required:true,
         unique:true,
-        match:[/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/,"Please enter a valid email address"]
+        lowercase: true,
+        trim: true,
+        maxlength: 254,
+        match:[/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/,"Please enter a valid email address"]
     },
 
     password:{
@@ -40,6 +43,25 @@ const userSchema=new mongoose.Schema({
         default:0
     },
 
+    // Home / Work / named places, synced across the rider's devices.
+    savedPlaces:{
+        home:{ type:String, maxlength:200 },
+        work:{ type:String, maxlength:200 },
+        custom:{
+            type:[{
+                _id:false,
+                id:{ type:String, required:true, maxlength:20 },
+                label:{ type:String, required:true, maxlength:30 },
+                address:{ type:String, required:true, maxlength:200 },
+            }],
+            validate:[(list) => list.length <= 10, 'Up to 10 saved places'],
+        },
+    },
+
+    // Captains' ratings (1–5) of this rider.
+    ratingTotal:{ type:Number, default:0 },
+    ratingCount:{ type:Number, default:0 },
+
     // Up to 3 people who get the live trip link.
     trustedContacts:[{
         _id:false,
@@ -54,15 +76,30 @@ const userSchema=new mongoose.Schema({
     },
 })
 
-userSchema.methods.generateAuthToken=function(){const token=jwt.sign({_id:this._id},process.env.JWT_SECRET,{expiresIn:'24h'});
-return token;}
+// Bumped on password change / "log out everywhere" to revoke older tokens.
+userSchema.add({ tokenVersion: { type: Number, default: 0 } });
+
+userSchema.methods.generateAuthToken=function(){
+    return signToken('user', this);
+}
+
+// Never send secrets or internal fields to clients.
+userSchema.set('toJSON', {
+    transform(doc, ret) {
+        delete ret.password;
+        delete ret.socketId;
+        delete ret.tokenVersion;
+        delete ret.__v;
+        return ret;
+    },
+});
 
 userSchema.methods.comparePassword=async function(password){
     return await bcrypt.compare(password,this.password);
 }
 
 userSchema.statics.hashPassword=async function(password){
-    return await bcrypt.hash(password,10);
+    return await bcrypt.hash(password,12);
 }   
 
 

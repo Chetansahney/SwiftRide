@@ -200,12 +200,12 @@ module.exports.listReviews = async (req, res) => {
     const [identity, shifts] = await Promise.all([
         captainModel
             .find({ 'verification.status': 'in_review' })
-            .select('name vehicle verification +verification.dlImage +verification.selfieImage')
+            .select('name vehicle verification.submittedAt verification.reasons verification.face verification.dl.last4 verification.dl.name verification.dl.dob +verification.dlImage +verification.selfieImage')
             .sort({ 'verification.submittedAt': 1 })
             .limit(50),
         captainModel
             .find({ 'shiftSelfie.status': 'in_review', 'shiftSelfie.windowId': window.id })
-            .select('name vehicle verification.face shiftSelfie +shiftSelfie.image')
+            .select('name vehicle shiftSelfie.windowId shiftSelfie.score shiftSelfie.attempts shiftSelfie.status +shiftSelfie.image')
             .limit(50),
     ]);
     res.status(200).json({

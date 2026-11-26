@@ -11,6 +11,8 @@ const MAX_EXTRA_FARE_CREDIT = 200;
 // Three money/driving strikes pause a captain for review; harassment or a
 // wrong-driver report pauses them straight away.
 const STRIKES_BEFORE_PAUSE = 3;
+// Reports are accepted up to a week after the ride.
+const REPORT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 async function loadRiderRide(req, res) {
     const errors = validationResult(req);
@@ -56,26 +58,45 @@ module.exports.reportRide = async (req, res) => {
         const { type, note } = req.body;
         const amount = Math.max(0, Math.round(Number(req.body.amount) || 0));
 
-        let creditIssued = 0;
-        if (type === 'extra_fare') {
-            creditIssued = Math.min(amount, MAX_EXTRA_FARE_CREDIT);
-            await strikeCaptain(ride.captain);
-        } else if (type === 'unsafe_driving') {
+        // Only rides that had a captain, recently, and one report of each kind per ride —
+        // so reports can't be repeated for more credit or more strikes.
+        if (!ride.captain || !['accepted', 'ongoing', 'completed'].includes(ride.status)) {
+            return res.status(409).json({ error: 'You can report a ride once a captain has accepted it.' });
+        }
+        if (Date.now() - new Date(ride.createdAt).getTime() > REPORT_WINDOW_MS) {
+            return res.status(409).json({ error: 'This ride is too old to report here. Please contact support.' });
+        }
+        if (await reportModel.exists({ ride: ride._id, type })) {
+            return res.status(409).json({ error: "You've already reported this. Our team is looking into it." });
+        }
+
+        // Refund is capped and never more than the fare itself.
+        const creditIssued = type === 'extra_fare' ? Math.min(amount, MAX_EXTRA_FARE_CREDIT, ride.fare || 0) : 0;
+
+        // Saved first: the unique (ride, type) index makes a duplicate fail
+        // here, before any credit or strike is given.
+        let report;
+        try {
+            report = await reportModel.create({
+                ride: ride._id,
+                user: req.user._id,
+                captain: ride.captain,
+                type,
+                amount: amount || undefined,
+                note,
+                creditIssued,
+            });
+        } catch (error) {
+            if (error.code === 11000) return res.status(409).json({ error: "You've already reported this. Our team is looking into it." });
+            throw error;
+        }
+
+        if (type === 'extra_fare' || type === 'unsafe_driving') {
             await strikeCaptain(ride.captain);
         } else if (type === 'harassment' || type === 'wrong_driver') {
             await strikeCaptain(ride.captain, { pause: true });
             await raiseAlert({ ride, raisedBy: 'rider', reason: type === 'wrong_driver' ? 'wrong_driver' : 'not_safe' });
         }
-
-        const report = await reportModel.create({
-            ride: ride._id,
-            user: req.user._id,
-            captain: ride.captain,
-            type,
-            amount: amount || undefined,
-            note,
-            creditIssued,
-        });
 
         let walletCredit = req.user.walletCredit || 0;
         if (creditIssued > 0) {
@@ -133,7 +154,7 @@ module.exports.riderSos = async (req, res) => {
 module.exports.captainSos = async (req, res) => {
     try {
         const ride = await rideModel.findById(req.params.rideId);
-        if (!ride || ride.captain?.toString() !== req.captain._id.toString()) {
+        if (!ride || ride.captain?.toString() !== req.captain._id.toString() || !['accepted', 'ongoing', 'completed'].includes(ride.status)) {
             return res.status(404).json({ error: 'Ride not found.' });
         }
         const alert = await raiseAlert({
@@ -171,11 +192,18 @@ module.exports.verifyDriver = async (req, res) => {
     try {
         const ride = await loadRiderRide(req, res);
         if (!ride) return;
+        // Answered once, at pickup, for a ride that has a captain.
+        if (ride.status !== 'accepted' || !ride.captain) {
+            return res.status(409).json({ error: 'You can check your driver at pickup.' });
+        }
+        if (typeof ride.safety?.driverConfirmed === 'boolean') {
+            return res.json({ driverConfirmed: ride.safety.driverConfirmed });
+        }
         const match = Boolean(req.body.match);
         ride.safety = { ...(ride.safety?.toObject?.() || {}), driverConfirmed: match };
         await ride.save();
         if (!match) {
-            await reportModel.create({ ride: ride._id, user: req.user._id, captain: ride.captain, type: 'wrong_driver' });
+            await reportModel.updateOne({ ride: ride._id, type: 'wrong_driver' }, { $setOnInsert: { user: req.user._id, captain: ride.captain } }, { upsert: true });
             await strikeCaptain(ride.captain, { pause: true });
             await raiseAlert({ ride, raisedBy: 'rider', reason: 'wrong_driver', location: req.body.location });
         }
@@ -190,6 +218,9 @@ module.exports.reachedSafely = async (req, res) => {
     try {
         const ride = await loadRiderRide(req, res);
         if (!ride) return;
+        if (ride.status !== 'completed') {
+            return res.status(409).json({ error: 'This ride has not ended yet.' });
+        }
         const safe = Boolean(req.body.safe);
         ride.safety = { ...(ride.safety?.toObject?.() || {}), reachedSafely: safe };
         await ride.save();

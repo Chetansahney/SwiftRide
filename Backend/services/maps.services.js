@@ -12,6 +12,10 @@ module.exports.COORDINATE_PAIR = COORDINATE_PAIR;
 function dispatchableFilter() {
     return {
         suspended: { $ne: true },
+        // Online right now: app connected, sent a location in the last 2 minutes, not on a ride.
+        status: 'available',
+        socketId: { $ne: null },
+        lastSeenAt: { $gte: new Date(Date.now() - 2 * 60 * 1000) },
         'verification.status': 'verified',
         'shiftSelfie.windowId': currentShiftWindow().id,
         'shiftSelfie.status': 'verified',

@@ -28,12 +28,21 @@ const CaptainHome = () => {
     const [ridePopUp, setRidePopUp] = useState(false);
     const [confirmRidePopUp, setconfirmRidePopUp] = useState(false);
     const [ride, setRide] = useState(null);
+    const [notice, setNotice] = useState(null);
+    useEffect(() => {
+        if (!notice) return undefined;
+        const timer = setTimeout(() => setNotice(null), 6000);
+        return () => clearTimeout(timer);
+    }, [notice]);
     const { captain } = useContext(CaptainDataContext);
 
     // Join the socket room and share live location every second.
     useEffect(() => {
         if (!captain?._id) return undefined;
-        socket.emit('join', { userId: captain._id, userType: 'captain' });
+        // The server identifies us by the login token; re-join after every reconnect.
+        const join = () => socket.emit('join', { token: localStorage.getItem('captainToken'), userType: 'captain' });
+        join();
+        socket.on('connect', join);
 
         const locationInterval = setInterval(() => {
             if (!navigator.geolocation) return;
@@ -48,7 +57,6 @@ const CaptainHome = () => {
                         }
                     }
                     socket.emit('update-location-captain', {
-                        userId: captain._id,
                         rideId: rideId || undefined,
                         location: { lat: position.coords.latitude, lng: position.coords.longitude },
                     });
@@ -57,7 +65,10 @@ const CaptainHome = () => {
             );
         }, 1000);
 
-        return () => clearInterval(locationInterval);
+        return () => {
+            clearInterval(locationInterval);
+            socket.off('connect', join);
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [captain]);
 
@@ -66,8 +77,21 @@ const CaptainHome = () => {
             setRide(data);
             setRidePopUp(true);
         };
+        // The rider cancelled before pickup.
+        // Only ever sent for this captain's own (single) active ride.
+        const handleCancelled = () => {
+            setRide(null);
+            setRidePopUp(false);
+            setconfirmRidePopUp(false);
+            localStorage.removeItem('activeRide');
+            setNotice('captain.riderCancelled');
+        };
         socket.on('new-ride', handleNewRide);
-        return () => socket.off('new-ride', handleNewRide);
+        socket.on('ride-cancelled', handleCancelled);
+        return () => {
+            socket.off('new-ride', handleNewRide);
+            socket.off('ride-cancelled', handleCancelled);
+        };
     }, []);
 
     async function confirmride() {
@@ -106,6 +130,11 @@ const CaptainHome = () => {
         <div className="relative flex h-full flex-col overflow-hidden bg-night text-white">
             <div className="relative min-h-[260px] flex-1">
                 <CaptainRouteMap ride={ride} mode="to-pickup" />
+                {notice ? (
+                    <div role="status" className="fixed inset-x-4 top-4 z-[60] mx-auto max-w-xl rounded-2xl bg-volt px-4 py-3 text-sm font-semibold text-ink">
+                        {t(notice)}
+                    </div>
+                ) : null}
                 <div className="absolute inset-x-5 top-6 z-20 mx-auto flex max-w-xl items-center justify-between gap-2">
                     <span className="flex h-12 items-center rounded-full bg-night-card px-4 shadow-float">
                         <Logo dark />

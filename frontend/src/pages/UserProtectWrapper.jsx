@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { UserDataContext } from '../context/UserContext';
 import { FullScreenLoader } from '../components/ui/AuthLayout';
+import { syncPlacesFromProfile } from '../lib/places';
 
 const UserProtectWrapper = ({ children }) => {
   const token = localStorage.getItem('userToken');
@@ -24,6 +25,8 @@ const UserProtectWrapper = ({ children }) => {
     .then((response) => {
       if (response.status === 200) {
         setUser(response.data);
+        // Saved places follow the rider across phones.
+        syncPlacesFromProfile(response.data);
         setIsLoading(false);
       }
     })
