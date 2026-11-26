@@ -2,6 +2,7 @@ const userModel=require('../models/user.models');
 const userService=require('../services/user.services');
 const {validationResult}=require('express-validator');
 const blacklistTokenModel=require('../models/blacklistTokens.model');
+const rideModel=require('../models/ride.model');
 module.exports.register=async (req,res)=>{
     const errors=validationResult(req);//taking errors from the routes
     if(!errors.isEmpty()){
@@ -76,5 +77,25 @@ module.exports.updateUserProfile=async (req,res)=>{
     } catch (error) {
         console.error("Error updating profile:", error.message || error);
         res.status(400).json({ message: "Could not update your profile" });
+    }
+}
+
+
+// Permanently deletes the signed-in rider's account and ride history, then
+// blacklists the current token so it can't be used again.
+module.exports.deleteAccount=async (req,res)=>{
+    const authHeader = req.headers.authorization || '';
+    const token = req.cookies.token || (authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null);
+    try {
+        await rideModel.deleteMany({ user: req.user._id });
+        await userModel.findByIdAndDelete(req.user._id);
+        if (token) {
+            await blacklistTokenModel.create({ token }).catch(() => {});
+        }
+        res.clearCookie('token');
+        res.status(200).json({ message: "Account deleted" });
+    } catch (error) {
+        console.error("Error deleting account:", error.message || error);
+        res.status(500).json({ message: "Could not delete the account" });
     }
 }

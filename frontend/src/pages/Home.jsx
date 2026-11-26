@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Briefcase, Check, ChevronDown, History, House, LocateFixed, MapPin, Mic, Pencil, RotateCcw, Search, TrainFront, User } from 'lucide-react';
+import { ArrowRight, Briefcase, Check, ChevronDown, History, House, LocateFixed, MapPin, Mic, Pencil, Plus, RotateCcw, Search, TrainFront, User } from 'lucide-react';
 import LocationSearchPanel from '../components/LocationSearchPanel';
 import VehiclePanel from '../components/VehiclePanel';
 import ConfirmRide from '../components/ConfirmRide';
@@ -13,7 +13,7 @@ import { UserDataContext } from '../context/UserContext';
 import { useLanguage } from '../i18n/LanguageContext';
 import { STRINGS } from '../i18n/strings';
 import { FEATURES, shortPlace } from '../lib/config';
-import { reverseGeocode, useGeolocation } from '../lib/maps';
+import { reverseGeocode, useLocation } from '../lib/maps';
 import { addRecentPlace, getRecentPlaces, getSavedPlaces, savePlace } from '../lib/places';
 import useSpeechInput from '../lib/useSpeechInput';
 import socket from '../socket';
@@ -33,7 +33,7 @@ function Sheet({ open, children, className = '' }) {
     );
 }
 
-const CHIP_ICONS = { home: House, work: Briefcase, transit: TrainFront, recent: History };
+const CHIP_ICONS = { home: House, work: Briefcase, custom: MapPin, transit: TrainFront, recent: History, add: Plus };
 
 const Home = () => {
     const { t, current, lang } = useLanguage();
@@ -41,8 +41,7 @@ const Home = () => {
     const { user, setUser } = React.useContext(UserDataContext);
 
     // Pickup is either "where I'm standing" (default) or a place the rider chose.
-    const userLocation = useGeolocation();
-    const [geoDenied, setGeoDenied] = useState(false);
+    const { position: userLocation, denied: geoDenied, retry: retryLocation } = useLocation();
     const [pickupMode, setPickupMode] = useState('current');
     const [customPickup, setCustomPickup] = useState('');
     const [currentAddress, setCurrentAddress] = useState('');
@@ -88,15 +87,6 @@ const Home = () => {
 
     // Rounded to ~100 m so small GPS jitter doesn't trigger new lookups.
     const locationKey = userLocation ? `${userLocation.lat.toFixed(3)},${userLocation.lng.toFixed(3)}` : null;
-
-    useEffect(() => {
-        if (!navigator.geolocation) return;
-        navigator.geolocation.getCurrentPosition(
-            () => setGeoDenied(false),
-            () => setGeoDenied(true),
-            { timeout: 15000 }
-        );
-    }, []);
 
     useEffect(() => {
         if (!locationKey) return undefined;
@@ -186,16 +176,34 @@ const Home = () => {
     const quickPlaces = [
         { key: 'home', label: t('home.home'), address: savedPlaces.home },
         { key: 'work', label: t('home.work'), address: savedPlaces.work },
+        ...(savedPlaces.custom || []).map((place) => ({ key: 'custom', label: place.label, address: place.address })),
         nearestTransit?.address ? { key: 'transit', label: nearestTransit.name, address: nearestTransit.address } : null,
         ...recentPlaces
             .filter((place) => place !== savedPlaces.home && place !== savedPlaces.work)
             .slice(0, 2)
             .map((place) => ({ key: 'recent', label: shortPlace(place), address: place })),
+        { key: 'add', label: t('home.addPlace') },
     ].filter(Boolean);
 
+    // Saved places are destinations: tapping one fills the drop field and opens
+    // "Plan your ride" so the rider can see it before choosing a vehicle.
+    const fillDestination = (address) => {
+        setDestination(address);
+        setSavingPlace(null);
+        setPanelOpen(true);
+        if (pickup) {
+            setActiveInput(null);
+        } else {
+            setActiveInput('pickup');
+            focusField('pickup');
+        }
+    };
+
     const onQuickPlace = (place) => {
-        if (place.address) {
-            goToDestination(place.address);
+        if (place.key === 'add') {
+            navigate('/account?addPlace=1');
+        } else if (place.address) {
+            fillDestination(place.address);
         } else {
             setSavingPlace(place.key);
             setDestination('');
@@ -469,7 +477,7 @@ const Home = () => {
                                 )}
                                 <input
                                     ref={pickupInputRef}
-                                    value={pickupIsCurrent ? (userLocation ? t('home.currentLocation') : '') : customPickup}
+                                    value={pickupIsCurrent && !geoDenied ? t('home.currentLocation') : customPickup}
                                     onFocus={(e) => {
                                         setActiveInput('pickup');
                                         if (pickupIsCurrent) e.target.select();
@@ -508,7 +516,42 @@ const Home = () => {
                             </div>
                         </form>
 
+                        {pickupIsCurrent && geoDenied ? (
+                            <div className="flex items-center gap-3 rounded-[14px] bg-signal/10 px-3 py-2.5" role="status">
+                                <span className="flex-1 text-sm text-ink">{t('home.locationOff')}</span>
+                                <button
+                                    type="button"
+                                    onClick={retryLocation}
+                                    className="h-10 shrink-0 rounded-full bg-ink px-4 text-xs font-semibold text-white"
+                                >
+                                    {t('home.allowLocation')}
+                                </button>
+                            </div>
+                        ) : null}
+
+                        {activeInput === 'destination' && !destination.trim() ? (
+                            <div className="-mx-5 flex gap-2 overflow-x-auto px-5 [scrollbar-width:none]">
+                                {quickPlaces
+                                    .filter((place) => place.address)
+                                    .map((place) => {
+                                        const Icon = CHIP_ICONS[place.key];
+                                        return (
+                                            <button
+                                                key={`sheet-${place.key}-${place.address}`}
+                                                type="button"
+                                                onClick={() => fillDestination(place.address)}
+                                                className="flex h-11 shrink-0 items-center gap-2 rounded-full bg-paper px-4 text-sm font-semibold"
+                                            >
+                                                <Icon size={16} aria-hidden="true" />
+                                                <span className="max-w-[150px] truncate">{place.label}</span>
+                                            </button>
+                                        );
+                                    })}
+                            </div>
+                        ) : null}
+
                         <div className="-mx-1 min-h-0 flex-1 overflow-y-auto">
+                            {activeInput ? (
                             <LocationSearchPanel
                                 setPanelOpen={setPanelOpen}
                                 setVehiclePanel={setVehiclePanel}
@@ -529,7 +572,24 @@ const Home = () => {
                                         : undefined
                                 }
                             />
+                            ) : null}
                         </div>
+
+                        {pickup && destination.trim() && activeInput !== 'destination' ? (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setPanelOpen(false);
+                                    setVehiclePanel(true);
+                                }}
+                                className="btn-primary shrink-0 justify-between pl-5 pr-2"
+                            >
+                                {t('home.continue')}
+                                <span className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-volt text-ink" aria-hidden="true">
+                                    <ArrowRight size={20} />
+                                </span>
+                            </button>
+                        ) : null}
                     </div>
                 )}
             </div>

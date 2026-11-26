@@ -28,4 +28,6 @@ router.patch('/profile',
     userController.updateUserProfile
 );
 
+router.delete('/profile', authMiddleware.authUser, userController.deleteAccount);
+
 module.exports=router;

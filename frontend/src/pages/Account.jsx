@@ -1,7 +1,7 @@
 import React, { useContext, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
-import { Briefcase, ChevronLeft, House, LogOut, Pencil, Star } from 'lucide-react';
+import { Briefcase, ChevronLeft, House, LogOut, MapPin, Pencil, Plus, Star, Trash2 } from 'lucide-react';
 import { UserDataContext } from '../context/UserContext';
 import { useLanguage } from '../i18n/LanguageContext';
 import { LANGUAGES } from '../i18n/strings';
@@ -9,7 +9,8 @@ import { LanguagePicker } from '../components/ui/Brand';
 import { FormError } from '../components/ui/AuthLayout';
 import VehicleArt from '../components/ui/VehicleArt';
 import { formatFare, isCoordinatePair, shortPlace, vehicleMeta } from '../lib/config';
-import { getSavedPlaces, removePlace } from '../lib/places';
+import { addCustomPlace, clearPlaces, getSavedPlaces, removeCustomPlace, removePlace, savePlace } from '../lib/places';
+import SavePlaceSheet from '../components/SavePlaceSheet';
 
 const API = import.meta.env.VITE_BASE_URL;
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('userToken')}` });
@@ -43,6 +44,32 @@ const Account = () => {
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState({ type: '', text: '' });
     const [savedPlaces, setSavedPlaces] = useState(getSavedPlaces);
+    const [searchParams] = useSearchParams();
+    // Opened from the home screen's "+ Add place" chip.
+    const [addingPlace, setAddingPlace] = useState(() => (searchParams.get('addPlace') ? 'custom' : null));
+    const [confirmDelete, setConfirmDelete] = useState(false);
+    const [deleting, setDeleting] = useState(false);
+    const [deleteError, setDeleteError] = useState('');
+
+    const handleSavePlace = (kind, address, name) => {
+        setSavedPlaces(kind === 'custom' ? addCustomPlace(name, address) : savePlace(kind, address));
+    };
+
+    const deleteAccount = async () => {
+        setDeleting(true);
+        setDeleteError('');
+        try {
+            await axios.delete(`${API}/users/profile`, { headers: authHeaders() });
+            ['userToken', 'activeRide', 'selectedVehicle'].forEach((key) => localStorage.removeItem(key));
+            clearPlaces();
+            // Full reload to the welcome screen: resets every bit of in-memory state
+            // and avoids the login guard redirecting to /Userlogin first.
+            window.location.replace('/');
+        } catch {
+            setDeleteError(t('account.deleteFailed'));
+            setDeleting(false);
+        }
+    };
 
     const locale = LANGUAGES.find((language) => language.code === lang)?.speech || 'en-IN';
     const fullName = [user?.name?.firstname, user?.name?.lastname].filter(Boolean).join(' ') || '—';
@@ -296,26 +323,61 @@ const Account = () => {
                         const { kind, label } = place;
                         const PlaceIcon = place.Icon;
                         return (
-                        <div key={kind} className="flex items-center gap-3">
-                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-paper" aria-hidden="true">
-                                <PlaceIcon size={18} />
-                            </span>
-                            <div className="flex min-w-0 flex-1 flex-col">
-                                <strong className="text-sm font-semibold">{label}</strong>
-                                <span className="truncate text-xs text-muted">{savedPlaces[kind] || t('account.notSet')}</span>
-                            </div>
-                            {savedPlaces[kind] ? (
+                            <div key={kind} className="flex items-center gap-3">
+                                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-paper" aria-hidden="true">
+                                    <PlaceIcon size={18} />
+                                </span>
+                                <div className="flex min-w-0 flex-1 flex-col">
+                                    <strong className="text-sm font-semibold">{label}</strong>
+                                    <span className="truncate text-xs text-muted">{savedPlaces[kind] || t('account.notSet')}</span>
+                                </div>
                                 <button
                                     type="button"
-                                    onClick={() => setSavedPlaces(removePlace(kind))}
-                                    className="h-10 rounded-full px-3 text-sm font-semibold text-signal"
+                                    onClick={() => setAddingPlace(kind)}
+                                    className="h-10 shrink-0 rounded-full bg-paper px-3.5 text-sm font-semibold"
                                 >
-                                    {t('account.remove')}
+                                    {savedPlaces[kind] ? t('places.change') : t('places.set')}
                                 </button>
-                            ) : null}
-                        </div>
+                                {savedPlaces[kind] ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => setSavedPlaces(removePlace(kind))}
+                                        aria-label={`${t('account.remove')} ${label}`}
+                                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-signal"
+                                    >
+                                        <Trash2 size={18} aria-hidden="true" />
+                                    </button>
+                                ) : null}
+                            </div>
                         );
                     })}
+                    {(savedPlaces.custom || []).map((place) => (
+                        <div key={place.id} className="flex items-center gap-3">
+                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-paper" aria-hidden="true">
+                                <MapPin size={18} />
+                            </span>
+                            <div className="flex min-w-0 flex-1 flex-col">
+                                <strong className="truncate text-sm font-semibold">{place.label}</strong>
+                                <span className="truncate text-xs text-muted">{place.address}</span>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setSavedPlaces(removeCustomPlace(place.id))}
+                                aria-label={`${t('account.remove')} ${place.label}`}
+                                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-signal"
+                            >
+                                <Trash2 size={18} aria-hidden="true" />
+                            </button>
+                        </div>
+                    ))}
+                    <button
+                        type="button"
+                        onClick={() => setAddingPlace('custom')}
+                        className="flex h-12 items-center justify-center gap-2 rounded-[14px] border border-dashed border-[#B4B8C0] text-sm font-semibold"
+                    >
+                        <Plus size={18} aria-hidden="true" />
+                        {t('places.add')}
+                    </button>
                 </Section>
 
                 <Section title={t('lang.label')}>
@@ -326,7 +388,46 @@ const Account = () => {
                     <LogOut size={18} aria-hidden="true" />
                     {t('logout')}
                 </Link>
+
+                <button
+                    type="button"
+                    onClick={() => setConfirmDelete(true)}
+                    className="flex h-12 items-center justify-center gap-2 text-sm font-semibold text-muted underline underline-offset-4"
+                >
+                    <Trash2 size={16} aria-hidden="true" />
+                    {t('account.delete')}
+                </button>
             </div>
+
+            <SavePlaceSheet kind={addingPlace} onClose={() => setAddingPlace(null)} onSave={handleSavePlace} />
+
+            {confirmDelete ? (
+                <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/50 p-4 sm:items-center">
+                    <div role="alertdialog" aria-modal="true" aria-labelledby="delete-title" className="w-full max-w-md rounded-[24px] bg-white p-6">
+                        <span className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-signal/10 text-signal" aria-hidden="true">
+                            <Trash2 size={22} />
+                        </span>
+                        <h2 id="delete-title" className="font-display text-xl font-semibold">
+                            {t('account.deleteTitle')}
+                        </h2>
+                        <p className="mb-4 mt-2 text-sm leading-relaxed text-muted">{t('account.deleteBody')}</p>
+                        <FormError message={deleteError} />
+                        <div className="flex flex-col gap-2">
+                            <button
+                                type="button"
+                                onClick={deleteAccount}
+                                disabled={deleting}
+                                className="flex h-14 w-full items-center justify-center rounded-[14px] bg-signal text-base font-semibold text-white disabled:opacity-60"
+                            >
+                                {deleting ? t('loading') : t('account.deleteConfirm')}
+                            </button>
+                            <button type="button" onClick={() => setConfirmDelete(false)} disabled={deleting} className="btn-ghost">
+                                {t('account.cancel')}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
         </div>
     );
 };

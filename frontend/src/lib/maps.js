@@ -150,3 +150,24 @@ export function reverseGeocode(position) {
         .then((response) => response?.results?.[0]?.formatted_address || null)
         .catch(() => null);
 }
+
+// Live position plus whether location access is blocked, and a retry that asks
+// the browser again (shows the permission prompt if it isn't permanently denied).
+export function useLocation() {
+    const [position, setPosition] = useState(null);
+    const [denied, setDenied] = useState(() => !navigator.geolocation);
+    const [attempt, setAttempt] = useState(0);
+    useEffect(() => {
+        if (!navigator.geolocation) return undefined;
+        const watchId = navigator.geolocation.watchPosition(
+            (result) => {
+                setPosition({ lat: result.coords.latitude, lng: result.coords.longitude });
+                setDenied(false);
+            },
+            () => setDenied(true),
+            { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+        );
+        return () => navigator.geolocation.clearWatch(watchId);
+    }, [attempt]);
+    return { position, denied, retry: () => setAttempt((count) => count + 1) };
+}

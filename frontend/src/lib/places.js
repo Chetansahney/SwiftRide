@@ -40,3 +40,24 @@ export function removePlace(kind) {
     localStorage.setItem(SAVED_KEY, JSON.stringify(saved));
     return saved;
 }
+
+// Extra named places ("Gym", "Mom's house") alongside Home and Work.
+export function addCustomPlace(label, address) {
+    const saved = getSavedPlaces();
+    const id = Date.now().toString(36);
+    saved.custom = [...(saved.custom || []), { id, label: label.trim(), address }];
+    localStorage.setItem(SAVED_KEY, JSON.stringify(saved));
+    return saved;
+}
+
+export function removeCustomPlace(id) {
+    const saved = getSavedPlaces();
+    saved.custom = (saved.custom || []).filter((place) => place.id !== id);
+    localStorage.setItem(SAVED_KEY, JSON.stringify(saved));
+    return saved;
+}
+
+export function clearPlaces() {
+    localStorage.removeItem(SAVED_KEY);
+    localStorage.removeItem(RECENT_KEY);
+}
