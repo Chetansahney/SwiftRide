@@ -99,3 +99,26 @@ module.exports.deleteAccount=async (req,res)=>{
         res.status(500).json({ message: "Could not delete the account" });
     }
 }
+
+
+// Trusted contacts (up to 3) and safety preferences from the Account page / home toggle.
+module.exports.updateSafety=async (req,res)=>{
+    const errors=validationResult(req);
+    if(!errors.isEmpty()){
+        return res.status(400).json({errors:errors.array()});
+    }
+    const updates = {};
+    if (Array.isArray(req.body.trustedContacts)) {
+        updates.trustedContacts = req.body.trustedContacts.map(({ name, phone }) => ({ name, phone }));
+    }
+    const prefs = req.body.safetyPrefs || {};
+    if (typeof prefs.travellingAsWoman === 'boolean') updates['safetyPrefs.travellingAsWoman'] = prefs.travellingAsWoman;
+    if (typeof prefs.shareAtNight === 'boolean') updates['safetyPrefs.shareAtNight'] = prefs.shareAtNight;
+    try {
+        const user = await userModel.findByIdAndUpdate(req.user._id, { $set: updates }, { new: true, runValidators: true });
+        res.status(200).json(user);
+    } catch (error) {
+        console.error("Error updating safety settings:", error.message || error);
+        res.status(400).json({ message: "Could not save your safety settings" });
+    }
+}

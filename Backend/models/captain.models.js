@@ -48,6 +48,21 @@ const captainSchema = new mongoose.Schema({
             required: true
         }
     },
+    // Safety
+    gender: {
+        type: String,
+        enum: ['female', 'male', 'other'],
+    },
+    // Women captains can choose to only get ride requests from women riders.
+    womenRidersOnly: { type: Boolean, default: false },
+    // Strikes from "driver asked for extra" and similar reports; paused for review when suspended.
+    strikes: { type: Number, default: 0 },
+    suspended: { type: Boolean, default: false },
+    // Selfie taken at the start of each shift, shown to riders so they can check it's the same person.
+    shiftSelfie: {
+        image: { type: String, select: false },
+        takenAt: Date,
+    },
     location: {           // ✅ moved to top level
         type: {
             type: String,

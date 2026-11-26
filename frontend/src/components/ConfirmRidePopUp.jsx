@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
-import { X } from 'lucide-react';
+import { Clock, MapPinCheck, X } from 'lucide-react';
+import FareLockedBanner from './safety/FareLockedBanner';
 import RouteSummary from './RouteSummary';
 import { useLanguage } from '../i18n/LanguageContext';
-import { formatFare } from '../lib/config';
+import { FREE_WAIT_MIN, WAIT_PER_MIN, formatFare } from '../lib/config';
+import { captainPost } from '../lib/api';
 
 const ConfirmRidePopUp = (props) => {
     const { t } = useLanguage();
@@ -12,8 +14,33 @@ const ConfirmRidePopUp = (props) => {
     const [otpError, setOtpError] = useState('');
     const [isVerifying, setIsVerifying] = useState(false);
     const [verified, setVerified] = useState(false);
-    const riderName =
-        [props.ride?.user?.name?.firstname, props.ride?.user?.name?.lastname].filter(Boolean).join(' ') || t('captain.rider');
+    const riderName = props.ride?.user?.name?.firstname || t('captain.rider');
+    const [arrivedAt, setArrivedAt] = useState(props.ride?.arrivedAt || null);
+    const [now, setNow] = useState(() => Date.now());
+    const [arriving, setArriving] = useState(false);
+
+    useEffect(() => {
+        if (!arrivedAt) return undefined;
+        const timer = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, [arrivedAt]);
+
+    const waitedSec = arrivedAt ? Math.max(0, Math.floor((now - new Date(arrivedAt).getTime()) / 1000)) : 0;
+    const perMin = WAIT_PER_MIN[props.ride?.vehicleType] || WAIT_PER_MIN.car;
+    const waitingFee = Math.min(60, Math.round(Math.max(0, Math.floor(waitedSec / 60 - FREE_WAIT_MIN)) * perMin));
+
+    const markArrived = async () => {
+        if (!props.ride?._id) return;
+        setArriving(true);
+        try {
+            const response = await captainPost('/rides/arrived', { rideId: props.ride._id });
+            setArrivedAt(response.data?.ride?.arrivedAt || new Date().toISOString());
+        } catch {
+            // keep the button so they can try again
+        } finally {
+            setArriving(false);
+        }
+    };
 
     const verify = async () => {
         const otpValue = String(otp || '').trim();
@@ -64,6 +91,28 @@ const ConfirmRidePopUp = (props) => {
                 </div>
                 <strong className="font-display text-xl font-semibold">{formatFare(props.ride?.fare)}</strong>
             </div>
+
+            <FareLockedBanner fare={props.ride?.fare} role="captain" dark />
+
+            {arrivedAt ? (
+                <div className="flex items-center gap-3 rounded-2xl bg-night-card px-4 py-3" role="status">
+                    <Clock size={20} className="text-volt" aria-hidden="true" />
+                    <span className="text-sm font-semibold">
+                        {t('captain.waiting', { time: `${Math.floor(waitedSec / 60)}:${String(waitedSec % 60).padStart(2, '0')}` })}
+                        {waitingFee > 0 ? ` · ${t('captain.waitingCharge', { fee: formatFare(waitingFee) })}` : ''}
+                    </span>
+                </div>
+            ) : (
+                <button
+                    type="button"
+                    onClick={markArrived}
+                    disabled={arriving}
+                    className="flex h-14 items-center justify-center gap-2 rounded-2xl border border-volt text-base font-semibold text-volt disabled:opacity-60"
+                >
+                    <MapPinCheck size={20} aria-hidden="true" />
+                    {arriving ? t('loading') : t('captain.arrived')}
+                </button>
+            )}
 
             <div className="rounded-2xl bg-night-card p-4">
                 <label htmlFor="ride-pin" className="mb-2 block text-sm font-semibold">

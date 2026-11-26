@@ -51,7 +51,7 @@ const CaptainRouteMap = ({ ride, mode, showBanner = true }) => {
             </BaseMap>
 
             {showBanner && routeTarget ? (
-                <div className="absolute left-4 right-4 top-24 flex items-center gap-3 rounded-2xl bg-night-card/95 p-4 text-white shadow-float">
+                <div className="absolute left-4 right-4 top-24 z-20 flex items-center gap-3 rounded-2xl bg-night-card/95 p-4 text-white shadow-float">
                     <span className={`h-3 w-3 shrink-0 ${toDrop ? 'rounded-[3px] bg-white' : 'rounded-full bg-volt'}`} aria-hidden="true" />
                     <div className="min-w-0">
                         <p className="text-xs text-night-muted">{toDrop ? t('captain.toDrop') : t('captain.toPickup')}</p>

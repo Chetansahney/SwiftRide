@@ -106,7 +106,7 @@ const CaptainHome = () => {
         <div className="relative flex h-full flex-col overflow-hidden bg-night text-white">
             <div className="relative min-h-[260px] flex-1">
                 <CaptainRouteMap ride={ride} mode="to-pickup" />
-                <div className="absolute inset-x-5 top-6 mx-auto flex max-w-xl items-center justify-between gap-2">
+                <div className="absolute inset-x-5 top-6 z-20 mx-auto flex max-w-xl items-center justify-between gap-2">
                     <span className="flex h-12 items-center rounded-full bg-night-card px-4 shadow-float">
                         <Logo dark />
                     </span>
@@ -145,7 +145,7 @@ const CaptainHome = () => {
             </DarkSheet>
 
             <DarkSheet open={confirmRidePopUp}>
-                <ConfirmRidePopUp setconfirmRidePopUp={setconfirmRidePopUp} setRidePopUp={setRidePopUp} ride={ride} />
+                <ConfirmRidePopUp key={ride?._id || 'none'} setconfirmRidePopUp={setconfirmRidePopUp} setRidePopUp={setRidePopUp} ride={ride} />
             </DarkSheet>
         </div>
     );

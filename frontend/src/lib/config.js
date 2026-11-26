@@ -15,14 +15,27 @@ export const FARE_SPLIT = {
     gstRate: 0.05,
 };
 
-export function fareBreakdown(fare) {
+// Who gets what from a fare. With the backend's breakdown, SwiftRide's fee and
+// GST come only from the ride part — return-trip fee, night charge, waiting
+// charge and tip all go to the driver.
+export function fareBreakdown(fare, breakdown) {
     const total = Number(fare);
     if (!Number.isFinite(total) || total <= 0) {
         return null;
     }
-    const platform = Math.round(total * FARE_SPLIT.platformRate);
-    const gst = Math.round(total * FARE_SPLIT.gstRate);
-    return { total, driver: total - platform - gst, platform, gst };
+    const ridePart = Number(breakdown?.ride) > 0 ? Number(breakdown.ride) : total;
+    const platform = Math.round(ridePart * FARE_SPLIT.platformRate);
+    const gst = Math.round(ridePart * FARE_SPLIT.gstRate);
+    return {
+        total,
+        driver: total - platform - gst,
+        platform,
+        gst,
+        returnFee: Number(breakdown?.returnFee) || 0,
+        nightFee: Number(breakdown?.nightFee) || 0,
+        waitingFee: Number(breakdown?.waitingFee) || 0,
+        tip: Number(breakdown?.tip) || 0,
+    };
 }
 
 export const formatFare = (value) => (value || value === 0 ? `₹${value}` : '₹--');
@@ -50,3 +63,19 @@ export function formatDistance(meters) {
 }
 
 export const isCoordinatePair = (value) => /^\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*$/.test(String(value || ''));
+
+// Per-minute waiting charge after the 3 free minutes (mirrors the backend).
+export const WAIT_PER_MIN = { moto: 1, auto: 1.5, car: 2 };
+export const FREE_WAIT_MIN = 3;
+
+// 10 pm – 6 am India time.
+export function isNightInIndia(date = new Date()) {
+    const istHour = (date.getUTCHours() + 5.5 + date.getUTCMinutes() / 60) % 24;
+    return istHour >= 22 || istHour < 6;
+}
+
+// The "share your trip" nudge starts at 9 pm.
+export function isLateEvening(date = new Date()) {
+    const istHour = (date.getUTCHours() + 5.5 + date.getUTCMinutes() / 60) % 24;
+    return istHour >= 21 || istHour < 6;
+}

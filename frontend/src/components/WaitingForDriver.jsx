@@ -1,83 +1,146 @@
-import React from 'react';
-import { MapPin, Phone, Share2, TriangleAlert } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { BadgeCheck, Clock, Flag, MapPin, Phone, Share2, ShieldAlert, TriangleAlert } from 'lucide-react';
 import VehicleArt from './ui/VehicleArt';
 import NumberPlate from './ui/NumberPlate';
-import { GuaranteePill } from './ui/Brand';
+import WomanIcon from './ui/WomanIcon';
+import FareLockedBanner from './safety/FareLockedBanner';
 import { useLanguage } from '../i18n/LanguageContext';
-import { FEATURES, formatFare, shortPlace, vehicleMeta } from '../lib/config';
+import { FREE_WAIT_MIN, WAIT_PER_MIN, formatFare, shortPlace, vehicleMeta } from '../lib/config';
+import { currentPosition, riderPost } from '../lib/api';
 
-const WaitingForDriver = (props) => {
+function useFreeWaitLeft(arrivedAt) {
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        if (!arrivedAt) return undefined;
+        const timer = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, [arrivedAt]);
+    if (!arrivedAt) return null;
+    return Math.max(0, FREE_WAIT_MIN * 60 - Math.floor((now - new Date(arrivedAt).getTime()) / 1000));
+}
+
+const WaitingForDriver = ({ ride, otp, setWaitingForDriver, onShare, onReport, onSos }) => {
     const { t } = useLanguage();
-    const ride = props.ride;
+    const [verified, setVerified] = useState(null);
     const captain = ride?.captain;
-    const captainName = [captain?.name?.firstname, captain?.name?.lastname].filter(Boolean).join(' ') || t('ride.driver');
-    const initials = captainName
-        .split(' ')
-        .map((part) => part[0])
-        .join('')
-        .slice(0, 2)
-        .toUpperCase();
+    const captainName = captain?.name?.firstname || t('ride.driver');
     const vehicle = captain?.vehicle || {};
-    const meta = vehicleMeta(vehicle.vehicleType || 'car');
+    const meta = vehicleMeta(vehicle.vehicleType || ride?.vehicleType || 'car');
     const vehicleLabel = [vehicle.color, vehicle.model].filter(Boolean).join(' ') || t(meta.nameKey);
-    const pickup = ride?.origin || '';
-    const pin = String(props.otp || '').padEnd(4, '·').slice(0, 4).split('');
+    const pin = String(otp || '').padEnd(4, '·').slice(0, 4).split('');
+    const freeLeft = useFreeWaitLeft(ride?.arrivedAt);
+    const rideId = ride?._id;
 
-    const shareTrip = async () => {
-        const text = `${t('ride.driverOnWay')}: ${captainName}, ${vehicle.plate || ''} → ${shortPlace(ride?.destination)}`;
-        if (navigator.share) {
-            try {
-                await navigator.share({ title: 'SwiftRide', text });
-            } catch {
-                // user closed the share sheet
-            }
-        } else if (navigator.clipboard) {
-            navigator.clipboard.writeText(text);
-        }
+    const answer = async (match) => {
+        setVerified(match);
+        if (!rideId) return;
+        const location = match ? null : await currentPosition();
+        riderPost(`/rides/${rideId}/verify-driver`, { match, location: location || undefined }).catch(() => {});
     };
 
     return (
         <div className="flex flex-col gap-3">
             <button
                 type="button"
-                onClick={() => props.setWaitingForDriver(false)}
+                onClick={() => setWaitingForDriver(false)}
                 aria-label="Minimise"
                 className="mx-auto flex h-6 w-16 items-center justify-center"
             >
                 <span className="sheet-handle" aria-hidden="true" />
             </button>
 
-            <h2 className="font-display text-[22px] font-semibold tracking-tight">{t('ride.driverOnWay')}</h2>
-            {FEATURES.rideGuarantee ? <GuaranteePill>{t('guarantee.name')}</GuaranteePill> : null}
+            {ride?.arrivedAt ? (
+                <div className="flex items-center gap-3 rounded-2xl bg-volt px-4 py-3 text-ink" role="status">
+                    <Clock size={22} aria-hidden="true" />
+                    <div className="flex flex-col">
+                        <strong className="text-[15px] font-semibold">{t('fare.arrivedTitle')}</strong>
+                        <span className="text-[13px]">
+                            {t('fare.freeWait', { rate: formatFare(WAIT_PER_MIN[meta.key] || WAIT_PER_MIN.car) })}
+                            {freeLeft > 0 ? ` · ${Math.floor(freeLeft / 60)}:${String(freeLeft % 60).padStart(2, '0')}` : ''}
+                        </span>
+                    </div>
+                </div>
+            ) : (
+                <h2 className="font-display text-[22px] font-semibold tracking-tight">{t('ride.driverOnWay')}</h2>
+            )}
 
-            <div className="flex items-center gap-3 rounded-2xl bg-paper p-3">
-                <VehicleArt art={meta.art} width={84} />
-                <div className="flex flex-col items-start gap-1.5">
+            <FareLockedBanner fare={ride?.fare} />
+
+            <section className="flex flex-col gap-3 rounded-2xl border border-line p-3" aria-label={t('safety.isThisYourRide')}>
+                <div className="flex items-center gap-3">
+                    {captain?.photo ? (
+                        <img src={captain.photo} alt={captainName} className="h-16 w-16 shrink-0 rounded-2xl object-cover" />
+                    ) : (
+                        <span
+                            className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-ink font-display text-xl font-semibold text-volt"
+                            aria-hidden="true"
+                        >
+                            {captainName.slice(0, 1).toUpperCase()}
+                        </span>
+                    )}
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                        <strong className="flex items-center gap-1.5 text-base font-semibold">
+                            {captainName}
+                            {captain?.isWoman ? <WomanIcon size={16} className="text-ink" /> : null}
+                        </strong>
+                        {captain?.selfieCheckedToday ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-ink">
+                                <BadgeCheck size={14} aria-hidden="true" />
+                                {t('safety.selfieToday')}
+                            </span>
+                        ) : null}
+                        <span className="truncate text-[13px] text-muted">{vehicleLabel}</span>
+                    </div>
+                </div>
+                <div className="flex items-center gap-3 rounded-xl bg-paper p-2">
+                    <VehicleArt art={meta.art} width={76} />
                     <NumberPlate plate={vehicle.plate} size="lg" />
-                    <span className="text-[13px] text-muted">{vehicleLabel}</span>
                 </div>
-            </div>
 
-            <div className="flex items-center gap-3">
-                <div
-                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-ink font-display text-lg font-semibold text-volt"
-                    aria-hidden="true"
-                >
-                    {initials}
-                </div>
-                <div className="flex min-w-0 flex-col">
-                    <strong className="text-base font-semibold">{captainName}</strong>
-                    <span className="text-[13px] text-muted">{t(meta.nameKey)}</span>
-                </div>
-            </div>
+                {verified === null ? (
+                    <>
+                        <div>
+                            <strong className="text-[15px] font-semibold">{t('safety.isThisYourRide')}</strong>
+                            <p className="text-[13px] text-muted">{t('safety.checkPhoto')}</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <button type="button" onClick={() => answer(true)} className="btn-primary h-12 text-[15px]">
+                                {t('safety.yesMine')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => answer(false)}
+                                className="flex h-12 items-center justify-center rounded-[14px] border border-signal/40 text-[15px] font-semibold text-signal"
+                            >
+                                {t('safety.notMine')}
+                            </button>
+                        </div>
+                    </>
+                ) : verified ? (
+                    <p className="flex items-center gap-2 rounded-xl bg-volt/40 px-3 py-2 text-sm font-semibold" role="status">
+                        <BadgeCheck size={18} aria-hidden="true" />
+                        {t('safety.confirmed')}
+                    </p>
+                ) : (
+                    <div className="flex flex-col gap-2 rounded-xl bg-signal/10 p-3" role="alert">
+                        <strong className="flex items-center gap-2 text-sm font-semibold text-signal">
+                            <ShieldAlert size={18} aria-hidden="true" />
+                            {t('safety.notMineBody')}
+                        </strong>
+                        <button type="button" onClick={onSos} className="flex h-12 items-center justify-center rounded-[12px] bg-signal text-sm font-semibold text-white">
+                            {t('safety.sosTitle')}
+                        </button>
+                    </div>
+                )}
+            </section>
 
-            {pickup ? (
+            {ride?.origin ? (
                 <div className="flex items-center gap-3 rounded-[14px] border border-line px-3 py-2.5">
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink text-volt" aria-hidden="true">
                         <MapPin size={16} />
                     </span>
                     <span className="min-w-0 text-sm leading-snug">
-                        {t('ride.meetAt')} <strong className="font-semibold">{shortPlace(pickup)}</strong>
+                        {t('ride.meetAt')} <strong className="font-semibold">{shortPlace(ride.origin)}</strong>
                     </span>
                 </div>
             ) : null}
@@ -100,33 +163,25 @@ const WaitingForDriver = (props) => {
                 </div>
             </div>
 
-            <div className="flex items-center justify-between px-1 text-sm">
-                <span className="text-muted">{t('ride.payCash')}</span>
-                <strong className="font-display text-lg font-semibold">{formatFare(ride?.fare)}</strong>
-            </div>
-
-            <div className={`grid gap-2 ${captain?.phone ? 'grid-cols-[2fr_1fr_1fr]' : 'grid-cols-2'}`}>
+            <div className={`grid gap-2 ${captain?.phone ? 'grid-cols-4' : 'grid-cols-3'}`}>
                 {captain?.phone ? (
-                    <a href={`tel:${captain.phone}`} className="btn-primary gap-2">
-                        <Phone size={20} className="text-volt" aria-hidden="true" />
+                    <a href={`tel:${captain.phone}`} className="flex h-16 flex-col items-center justify-center gap-1 rounded-[14px] bg-ink text-xs font-semibold text-white">
+                        <Phone size={18} className="text-volt" aria-hidden="true" />
                         {t('ride.call')}
                     </a>
                 ) : null}
-                <button
-                    type="button"
-                    onClick={shareTrip}
-                    className="flex h-14 flex-col items-center justify-center gap-1 rounded-[14px] bg-paper text-xs font-medium"
-                >
+                <button type="button" onClick={onShare} className="flex h-16 flex-col items-center justify-center gap-1 rounded-[14px] bg-paper text-xs font-semibold">
                     <Share2 size={18} aria-hidden="true" />
                     {t('ride.share')}
                 </button>
-                <a
-                    href="tel:112"
-                    className="flex h-14 flex-col items-center justify-center gap-1 rounded-[14px] bg-signal text-xs font-semibold text-white"
-                >
+                <button type="button" onClick={onReport} className="flex h-16 flex-col items-center justify-center gap-1 rounded-[14px] bg-paper px-1 text-center text-[11px] font-semibold leading-tight">
+                    <Flag size={18} aria-hidden="true" />
+                    {t('report.extraButton')}
+                </button>
+                <button type="button" onClick={onSos} className="flex h-16 flex-col items-center justify-center gap-1 rounded-[14px] bg-signal text-xs font-semibold text-white">
                     <TriangleAlert size={18} aria-hidden="true" />
                     {t('ride.sos')}
-                </a>
+                </button>
             </div>
         </div>
     );

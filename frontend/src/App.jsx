@@ -13,6 +13,7 @@ import CaptainProtectWrapper from './pages/CaptainProtectWrapper';
 import Riding from './pages/Riding';
 import CaptainRiding from './pages/CaptainRiding';
 import Account from './pages/Account';
+import TrackTrip from './pages/TrackTrip';
 const App = () => {
   return (
     <div className="h-full">
@@ -29,8 +30,18 @@ const App = () => {
           </UserProtectWrapper>
         } />
         <Route path="/Userlogin" element={<Userlogin />} />
-        <Route path="/riding" element={<Riding />} />
-        <Route path="/start-ride" element={<Riding />} />
+        <Route path="/riding" element={
+          <UserProtectWrapper>
+            <Riding />
+          </UserProtectWrapper>
+        } />
+        <Route path="/start-ride" element={
+          <UserProtectWrapper>
+            <Riding />
+          </UserProtectWrapper>
+        } />
+        {/* Public: live trip link shared with trusted contacts (no login). */}
+        <Route path="/track/:token" element={<TrackTrip />} />
 
         <Route path="/usersignup" element={<Usersignup />} />
         <Route path="/captainlogin" element={<Captainlogin />} />

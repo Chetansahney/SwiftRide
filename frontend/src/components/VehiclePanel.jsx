@@ -2,6 +2,7 @@ import React from 'react';
 import { ArrowRight, ChevronLeft, MapPin } from 'lucide-react';
 import VehicleArt from './ui/VehicleArt';
 import FareSplit from './ui/FareSplit';
+import WomanIcon from './ui/WomanIcon';
 import { useLanguage } from '../i18n/LanguageContext';
 import { VEHICLES, formatDistance, formatFare } from '../lib/config';
 
@@ -14,6 +15,9 @@ const VehiclePanel = ({
     setSelectedVehicle,
     nearby,
     onBack,
+    womenMode = false,
+    allowAnyCaptain = false,
+    setAllowAnyCaptain,
 }) => {
     const { t } = useLanguage();
     const tripLine = distanceTime?.duration
@@ -21,6 +25,31 @@ const VehiclePanel = ({
         : t('ride.enterBoth');
     const selected = VEHICLES.find((vehicle) => vehicle.key === selectedVehicle) || VEHICLES[1];
     const selectedFare = fare?.[selected.key];
+    const noWomenForSelected = womenMode && nearby && nearby.women?.[selected.key] == null;
+
+    const distanceLine = (key) => {
+        if (!nearby) return null;
+        if (womenMode) {
+            const meters = nearby.women?.[key];
+            return meters == null ? (
+                <span className="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-muted">
+                    <WomanIcon size={13} />
+                    {t('safety.noWomenNearby')}
+                </span>
+            ) : (
+                <span className="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-ink">
+                    <WomanIcon size={13} />
+                    {t('safety.womenNearby', { distance: formatDistance(meters) })}
+                </span>
+            );
+        }
+        return (
+            <span className={`mt-0.5 inline-flex items-center gap-1 text-xs font-semibold ${nearby[key] == null ? 'text-muted' : 'text-ink'}`}>
+                <MapPin size={12} aria-hidden="true" />
+                {nearby[key] == null ? t('ride.noneNearby') : t('ride.fromPickup', { distance: formatDistance(nearby[key]) })}
+            </span>
+        );
+    };
 
     return (
         <div className="flex flex-col gap-3.5">
@@ -59,16 +88,7 @@ const VehiclePanel = ({
                             <span className="flex min-w-0 flex-1 flex-col">
                                 <strong className="text-[15px] font-semibold">{t(vehicle.nameKey)}</strong>
                                 <span className="text-xs text-muted">{t(vehicle.noteKey)}</span>
-                                {nearby ? (
-                                    <span
-                                        className={`mt-0.5 inline-flex items-center gap-1 text-xs font-semibold ${nearby[vehicle.key] == null ? 'text-muted' : 'text-ink'}`}
-                                    >
-                                        <MapPin size={12} aria-hidden="true" />
-                                        {nearby[vehicle.key] == null
-                                            ? t('ride.noneNearby')
-                                            : t('ride.fromPickup', { distance: formatDistance(nearby[vehicle.key]) })}
-                                    </span>
-                                ) : null}
+                                {distanceLine(vehicle.key)}
                             </span>
                             <span className="font-display text-xl font-semibold">{formatFare(fare?.[vehicle.key])}</span>
                         </button>
@@ -76,7 +96,37 @@ const VehiclePanel = ({
                 })}
             </div>
 
-            <FareSplit fare={selectedFare} />
+            {noWomenForSelected ? (
+                <div className="flex flex-col gap-2 rounded-2xl border border-line p-3" role="group" aria-label={t('safety.noWomenNearby')}>
+                    <strong className="flex items-center gap-2 text-sm font-semibold">
+                        <WomanIcon size={16} />
+                        {t('safety.noWomenNearby')}
+                    </strong>
+                    {[
+                        { value: true, label: t('safety.bookAny') },
+                        { value: false, label: t('safety.waitWomen') },
+                    ].map((option) => (
+                        <button
+                            key={String(option.value)}
+                            type="button"
+                            role="radio"
+                            aria-checked={allowAnyCaptain === option.value}
+                            onClick={() => setAllowAnyCaptain?.(option.value)}
+                            className={`flex h-12 items-center gap-3 rounded-[12px] px-3 text-left text-sm font-semibold ${allowAnyCaptain === option.value ? 'bg-ink text-white' : 'bg-paper text-ink'}`}
+                        >
+                            <span
+                                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${allowAnyCaptain === option.value ? 'border-volt bg-volt' : 'border-[#B4B8C0]'}`}
+                                aria-hidden="true"
+                            >
+                                {allowAnyCaptain === option.value ? <span className="h-2 w-2 rounded-full bg-ink" /> : null}
+                            </span>
+                            {option.label}
+                        </button>
+                    ))}
+                </div>
+            ) : null}
+
+            <FareSplit fare={selectedFare} breakdown={fare?.breakdown?.[selected.key]} />
 
             <button
                 type="button"

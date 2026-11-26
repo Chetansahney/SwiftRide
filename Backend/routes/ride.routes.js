@@ -1,18 +1,16 @@
 const express=require('express');
 const router=express.Router();
-const {body,query}=require('express-validator');
+const {body,query,param}=require('express-validator');
 const rideController=require('../controllers/ride.controller');
+const safetyController=require('../controllers/safety.controller');
 const authMiddleware=require('../middleware/auth.middleware');
 
 router.post('/create',
-    (req, res, next) => {
-        console.log('POST /rides/create hit', { body: req.body });
-        next();
-    },
     authMiddleware.authUser,
     body('origin').not().isEmpty().withMessage('Origin is required'),
     body('destination').not().isEmpty().withMessage('Destination is required'),
-    body('vehicleType').not().isEmpty().withMessage('Vehicle type is required'),
+    body('vehicleType').isIn(['moto', 'bike', 'auto', 'car']).withMessage('Vehicle type is required'),
+    body('preferWomenCaptain').optional().isBoolean(),
     rideController.createRide
 )
 
@@ -36,6 +34,12 @@ router.post('/confirm',
     rideController.confirmRide
 )
 
+router.post('/arrived',
+    authMiddleware.authCaptain,
+    body('rideId').isMongoId().withMessage('Ride ID is required'),
+    rideController.markArrived
+)
+
 router.post('/start-ride',
     authMiddleware.authCaptain,
     body('rideId').not().isEmpty().withMessage('Ride ID is required'),
@@ -52,12 +56,72 @@ router.post('/end-ride',
 router.post('/complete-payment',
     authMiddleware.authUser,
     body('rideId').not().isEmpty().withMessage('Ride ID is required'),
+    body('tip').optional().isInt({ min: 0, max: 200 }).withMessage('Tip must be between 0 and 200'),
     rideController.completePayment
 )
 
 router.get('/history',
     authMiddleware.authUser,
     rideController.getRideHistory
+)
+
+// Public: what a trusted contact sees when they open a shared trip link.
+router.get('/shared/:token', safetyController.getSharedRide)
+
+const rideIdParam = param('rideId').isMongoId().withMessage('Invalid ride');
+const point = (field) => [
+    body(`${field}.lat`).optional().isFloat({ min: -90, max: 90 }),
+    body(`${field}.lng`).optional().isFloat({ min: -180, max: 180 }),
+];
+
+router.post('/:rideId/report',
+    authMiddleware.authUser,
+    rideIdParam,
+    body('type').isIn(['extra_fare', 'harassment', 'unsafe_driving', 'wrong_driver', 'other']).withMessage('Choose what happened'),
+    body('amount').optional().isInt({ min: 0, max: 1000 }),
+    body('note').optional().isString().isLength({ max: 500 }),
+    safetyController.reportRide
+)
+
+router.post('/:rideId/check-in',
+    authMiddleware.authUser,
+    rideIdParam,
+    body('response').isIn(['ok', 'help', 'no_response']),
+    ...point('location'),
+    safetyController.checkIn
+)
+
+router.post('/:rideId/sos',
+    authMiddleware.authUser,
+    rideIdParam,
+    body('silent').optional().isBoolean(),
+    ...point('location'),
+    safetyController.riderSos
+)
+
+router.post('/:rideId/captain-sos',
+    authMiddleware.authCaptain,
+    rideIdParam,
+    body('silent').optional().isBoolean(),
+    ...point('location'),
+    safetyController.captainSos
+)
+
+router.post('/:rideId/share', authMiddleware.authUser, rideIdParam, safetyController.shareRide)
+
+router.post('/:rideId/verify-driver',
+    authMiddleware.authUser,
+    rideIdParam,
+    body('match').isBoolean(),
+    safetyController.verifyDriver
+)
+
+router.post('/:rideId/reached',
+    authMiddleware.authUser,
+    rideIdParam,
+    body('safe').isBoolean(),
+    ...point('location'),
+    safetyController.reachedSafely
 )
 
 router.get('/:rideId',

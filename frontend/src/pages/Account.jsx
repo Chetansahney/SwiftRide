@@ -11,6 +11,7 @@ import VehicleArt from '../components/ui/VehicleArt';
 import { formatFare, isCoordinatePair, shortPlace, vehicleMeta } from '../lib/config';
 import { addCustomPlace, clearPlaces, getSavedPlaces, removeCustomPlace, removePlace, savePlace } from '../lib/places';
 import SavePlaceSheet from '../components/SavePlaceSheet';
+import SafetySettings from '../components/safety/SafetySettings';
 
 const API = import.meta.env.VITE_BASE_URL;
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('userToken')}` });
@@ -179,6 +180,12 @@ const Account = () => {
                         </div>
                     </div>
                 </section>
+
+                <div id="safety" className="scroll-mt-4">
+                    <Section title={t('safety.title')}>
+                        <SafetySettings />
+                    </Section>
+                </div>
 
                 <Section
                     title={t('account.profile')}

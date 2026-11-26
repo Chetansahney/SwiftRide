@@ -1,8 +1,29 @@
 const axios = require("axios");
 const captainModel = require('../models/captain.models');
+
+// "22.5726,88.3639" — the rider's current location sent as a pickup.
+const COORDINATE_PAIR = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/;
+module.exports.COORDINATE_PAIR = COORDINATE_PAIR;
+
+// Captains only get rides if they're not paused for review and have taken
+// their selfie for this shift (within the last 12 hours).
+const SHIFT_HOURS = 12;
+function dispatchableFilter() {
+    return {
+        suspended: { $ne: true },
+        'shiftSelfie.takenAt': { $gte: new Date(Date.now() - SHIFT_HOURS * 60 * 60 * 1000) },
+    };
+}
+module.exports.dispatchableFilter = dispatchableFilter;
+
 module.exports.getLocationCoordinates = async (address) => {
 	if (!address || typeof address !== "string") {
 		throw new Error("Address is required.");
+	}
+
+	const pair = address.match(COORDINATE_PAIR);
+	if (pair) {
+		return { latitude: parseFloat(pair[1]), longitude: parseFloat(pair[2]) };
 	}
 
 	const apiKey = process.env.GOOGLE_MAPS_API;
@@ -89,24 +110,27 @@ module.exports.getSuggestions = async (input) => {
 
 
 module.exports.getCaptainsNearby = async (latitude, longitude, radius) => {
-    console.log('Searching near:', longitude, latitude, 'radius:', radius);
-    
-    // Check ALL captains and their locations
-    const allCaptains = await captainModel.find({});
-    console.log('Total captains:', allCaptains.length);
-    allCaptains.forEach(c => {
-        console.log('Captain:', c.email, 'Location:', JSON.stringify(c.location));
-    });
-
-    const captains = await captainModel.find({
+    return captainModel.find({
+        ...dispatchableFilter(),
         location: {
             $geoWithin: {
                 $centerSphere: [[longitude, latitude], radius / 6371]
             }
         }
     });
-    console.log('Nearby found:', captains.length);
-    return captains;
+};
+
+// How many captains who could take a ride are within `meters` of a point —
+// used to tell whether a drop is somewhere drivers usually return from empty.
+module.exports.countCaptainsNear = async (latitude, longitude, meters) => {
+    return captainModel.countDocuments({
+        ...dispatchableFilter(),
+        location: {
+            $geoWithin: {
+                $centerSphere: [[longitude, latitude], meters / 6371000]
+            }
+        }
+    });
 };
 
 function distanceInMeters(lat1, lng1, lat2, lng2) {
@@ -117,12 +141,16 @@ function distanceInMeters(lat1, lng1, lat2, lng2) {
     const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
     return 2 * earthRadius * Math.asin(Math.sqrt(a));
 }
+module.exports.distanceInMeters = distanceInMeters;
 
 // Distance in metres to the closest captain of each vehicle type within maxMeters
 // of a point, e.g. { moto: 210, auto: 480 }. Types with nobody nearby are left out.
-module.exports.getNearestCaptainsByType = async (latitude, longitude, maxMeters = 5000) => {
+// With womenOnly, only women captains are counted.
+module.exports.getNearestCaptainsByType = async (latitude, longitude, maxMeters = 5000, { womenOnly = false } = {}) => {
     const captains = await captainModel
         .find({
+            ...dispatchableFilter(),
+            ...(womenOnly ? { gender: 'female' } : {}),
             location: {
                 $near: {
                     $geometry: { type: 'Point', coordinates: [longitude, latitude] },

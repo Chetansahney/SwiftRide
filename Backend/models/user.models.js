@@ -33,6 +33,25 @@ const userSchema=new mongoose.Schema({
         type:String,
         default: null
     },
+
+    // Ride credit, e.g. refunded when a driver asked for extra money.
+    walletCredit:{
+        type:Number,
+        default:0
+    },
+
+    // Up to 3 people who get the live trip link.
+    trustedContacts:[{
+        _id:false,
+        name:{ type:String, required:true, maxlength:40 },
+        phone:{ type:String, required:true, match:[/^[6-9]\d{9}$/, "Enter a 10-digit Indian mobile number"] }
+    }],
+
+    safetyPrefs:{
+        travellingAsWoman:{ type:Boolean, default:false },
+        // Offer to share the live trip with trusted contacts on rides after 9 pm.
+        shareAtNight:{ type:Boolean, default:true }
+    },
 })
 
 userSchema.methods.generateAuthToken=function(){const token=jwt.sign({_id:this._id},process.env.JWT_SECRET,{expiresIn:'24h'});

@@ -30,4 +30,17 @@ router.patch('/profile',
 
 router.delete('/profile', authMiddleware.authUser, userController.deleteAccount);
 
+// "+91 98765 43210" / "098765 43210" → "9876543210"
+const normalizePhone = (value) => String(value || '').replace(/\D/g, '').replace(/^(91|0)(?=\d{10}$)/, '');
+
+router.patch('/safety',
+    authMiddleware.authUser,
+    body('trustedContacts').optional().isArray({ max: 3 }).withMessage("You can add up to 3 trusted contacts"),
+    body('trustedContacts.*.name').trim().notEmpty().withMessage("Contact name is required").isLength({ max: 40 }),
+    body('trustedContacts.*.phone').customSanitizer(normalizePhone).matches(/^[6-9]\d{9}$/).withMessage("Enter a 10-digit Indian mobile number"),
+    body('safetyPrefs.travellingAsWoman').optional().isBoolean(),
+    body('safetyPrefs.shareAtNight').optional().isBoolean(),
+    userController.updateSafety
+);
+
 module.exports=router;

@@ -20,6 +20,11 @@ module.exports.register=async (req,res)=>{
             firstname: name.firstname, lastname: name.lastname,email,password: hashedPassword,color: vehicle.color,model:vehicle.model,plate:vehicle.plate,capacity:vehicle.capacity,vehicleType:vehicle.vehicleType
         });
         
+        if (['female','male','other'].includes(req.body.gender)) {
+            captain.gender = req.body.gender;
+            await captain.save();
+        }
+
         const token=captain.generateAuthToken();
         
         return res.status(201).json({token,captain});
@@ -60,3 +65,37 @@ module.exports.logoutCaptain=async (req,res,next)=>{
 
 
 
+
+
+// Selfie at the start of each shift. Captains don't get ride requests without
+// one from the last 12 hours, and riders see it to check it's the same person.
+const SELFIE_PREFIX = /^data:image\/(jpeg|png|webp);base64,/;
+const MAX_SELFIE_CHARS = 400000; // ~300 KB image
+
+module.exports.uploadShiftSelfie=async (req,res)=>{
+    const { image } = req.body || {};
+    if (typeof image !== 'string' || !SELFIE_PREFIX.test(image) || image.length > MAX_SELFIE_CHARS) {
+        return res.status(400).json({ message: "Please take a clear photo (JPEG or PNG, under 300 KB)." });
+    }
+    const takenAt = new Date();
+    await captainModel.findByIdAndUpdate(req.captain._id, { shiftSelfie: { image, takenAt } });
+    res.status(200).json({ takenAt });
+}
+
+// Gender (optional) and, for women captains, "women riders only".
+module.exports.updateSettings=async (req,res)=>{
+    const errors=validationResult(req);
+    if(!errors.isEmpty()){
+        return res.status(400).json({errors:errors.array()});
+    }
+    const updates = {};
+    if (req.body.gender !== undefined) updates.gender = req.body.gender || undefined;
+    const gender = updates.gender !== undefined ? updates.gender : req.captain.gender;
+    if (req.body.womenRidersOnly !== undefined) {
+        updates.womenRidersOnly = gender === 'female' && Boolean(req.body.womenRidersOnly);
+    } else if (gender !== 'female') {
+        updates.womenRidersOnly = false;
+    }
+    const captain = await captainModel.findByIdAndUpdate(req.captain._id, { $set: updates }, { new: true, runValidators: true });
+    res.status(200).json({ captain });
+}

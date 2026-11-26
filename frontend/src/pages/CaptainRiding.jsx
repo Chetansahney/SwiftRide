@@ -1,14 +1,19 @@
-import React, { useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Navigation } from 'lucide-react';
+import { Navigation, TriangleAlert } from 'lucide-react';
 import FinishRide from '../components/FinishRIde';
 import CaptainRouteMap from '../components/CaptainRouteMap';
+import SosSheet from '../components/safety/SosSheet';
+import { CaptainDataContext } from '../context/CaptainContext';
+import socket from '../socket';
 import { useLanguage } from '../i18n/LanguageContext';
 import { formatFare, shortPlace } from '../lib/config';
 
 const CaptainRiding = () => {
     const { t } = useLanguage();
     const [finishRidePanel, setFinishRidePanel] = useState(false);
+    const [sosOpen, setSosOpen] = useState(false);
+    const { captain } = useContext(CaptainDataContext);
     const [ride] = useState(() => {
         try {
             return JSON.parse(localStorage.getItem('activeRide') || 'null');
@@ -18,14 +23,42 @@ const CaptainRiding = () => {
         }
     });
 
+    // Keep sending live location during the trip: it feeds the rider's map and
+    // the live link shared with their trusted contacts.
+    useEffect(() => {
+        if (!captain?._id || !ride?._id || !navigator.geolocation) return undefined;
+        const send = () =>
+            navigator.geolocation.getCurrentPosition(
+                (position) =>
+                    socket.emit('update-location-captain', {
+                        userId: captain._id,
+                        rideId: ride._id,
+                        location: { lat: position.coords.latitude, lng: position.coords.longitude },
+                    }),
+                () => {},
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+            );
+        send();
+        const timer = setInterval(send, 5000);
+        return () => clearInterval(timer);
+    }, [captain?._id, ride?._id]);
+
     return (
         <div className="relative flex h-full flex-col overflow-hidden bg-night text-white">
             <div className="relative flex-1">
                 <CaptainRouteMap ride={ride} mode="to-destination" />
+                <button
+                    type="button"
+                    onClick={() => setSosOpen(true)}
+                    className="absolute left-5 top-6 z-20 flex h-12 items-center gap-2 rounded-full bg-signal px-4 text-sm font-semibold text-white shadow-float"
+                >
+                    <TriangleAlert size={18} aria-hidden="true" />
+                    {t('captain.sos')}
+                </button>
                 <Link
                     to="/captainhome"
                     aria-label="Captain home"
-                    className="absolute right-5 top-6 flex h-12 w-12 items-center justify-center rounded-full bg-night-card text-white shadow-float"
+                    className="absolute right-5 top-6 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-night-card text-white shadow-float"
                 >
                     <Navigation size={20} aria-hidden="true" />
                 </Link>
@@ -52,6 +85,8 @@ const CaptainRiding = () => {
             >
                 <FinishRide ride={ride} onClose={() => setFinishRidePanel(false)} />
             </div>
+
+            <SosSheet open={sosOpen} onClose={() => setSosOpen(false)} ride={ride} role="captain" dark />
         </div>
     );
 };

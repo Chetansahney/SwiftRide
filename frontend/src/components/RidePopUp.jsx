@@ -1,13 +1,15 @@
 import React from 'react';
 import RouteSummary from './RouteSummary';
+import WomanIcon from './ui/WomanIcon';
 import { useLanguage } from '../i18n/LanguageContext';
 import { FEATURES, fareBreakdown, formatFare } from '../lib/config';
 
 const RidePopUp = (props) => {
     const { t } = useLanguage();
     const rider = props.user;
-    const riderName = [rider?.name?.firstname, rider?.name?.lastname].filter(Boolean).join(' ') || t('captain.rider');
-    const split = FEATURES.fareSplit ? fareBreakdown(props.fare) : null;
+    const riderName = rider?.name?.firstname || t('captain.rider');
+    const split = FEATURES.fareSplit ? fareBreakdown(props.fare, props.ride?.fareBreakdown) : null;
+    const returnFee = Number(props.ride?.fareBreakdown?.returnFee) || 0;
     const distanceLabel = props.distanceTime?.distance || props.distance;
 
     return (
@@ -20,7 +22,15 @@ const RidePopUp = (props) => {
                     </span>
                     {t('captain.newRequest')}
                 </span>
-                <span className="text-sm text-night-muted">{riderName}</span>
+                <span className="inline-flex items-center gap-1.5 text-sm text-night-muted">
+                    {props.ride?.riderIsWoman ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-night-card px-2 py-0.5 text-xs font-semibold text-white">
+                            <WomanIcon size={13} className="text-volt" />
+                            {t('captain.womanRider')}
+                        </span>
+                    ) : null}
+                    {riderName}
+                </span>
             </div>
 
             <div className="flex flex-col gap-0.5" aria-live="assertive">
@@ -34,11 +44,14 @@ const RidePopUp = (props) => {
                         {distanceLabel ? ` · ${distanceLabel}` : ''}
                     </span>
                 ) : null}
+                {returnFee > 0 ? (
+                    <span className="mt-1 text-[13px] font-semibold text-white">{t('captain.returnIncluded', { fee: formatFare(returnFee) })}</span>
+                ) : null}
             </div>
 
             <RouteSummary pickup={props.pickup} destination={props.destination} dark />
 
-            <p className="text-xs leading-relaxed text-night-muted">{t('captain.seeAll')}</p>
+            <p className="text-xs leading-relaxed text-night-muted">{t('captain.seeAll')} {t('captain.acceptAgree')}</p>
 
             <div className="flex gap-2.5">
                 <button

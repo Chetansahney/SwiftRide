@@ -12,7 +12,8 @@ const mapsRoutes=require('./routes/maps.routes');
 const rideRoutes=require('./routes/ride.routes');
 
 
-app.use(express.json());
+// 1 MB so captains can upload a compressed shift selfie.
+app.use(express.json({ limit: '1mb' }));
 
 app.use(express.urlencoded({extended:true}));
 

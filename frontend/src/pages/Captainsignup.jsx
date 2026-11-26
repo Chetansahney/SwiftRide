@@ -25,6 +25,7 @@ const Captainsignup = () => {
     const [vehiclePlate, setVehiclePlate] = useState('');
     const [vehicleCapacity, setVehicleCapacity] = useState('');
     const [vehicleType, setVehicleType] = useState('');
+    const [gender, setGender] = useState('');
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const { setCaptain } = React.useContext(CaptainDataContext);
@@ -38,6 +39,7 @@ const Captainsignup = () => {
         setError('');
         setSubmitting(true);
         const captainData = {
+            gender: gender || undefined,
             name: { firstname: firstName, lastname: lastName },
             email,
             password,
@@ -91,6 +93,28 @@ const Captainsignup = () => {
                     {t('auth.password')}
                 </label>
                 <input id="password" required minLength={6} className="field mb-7" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+
+                <div role="radiogroup" aria-label={t('captain.gender')} className="mb-7 flex flex-col gap-2">
+                    <span className="label mb-0">{t('captain.gender')}</span>
+                    <div className="grid grid-cols-3 gap-2">
+                        {[
+                            { value: 'female', key: 'captain.genderWoman' },
+                            { value: 'male', key: 'captain.genderMan' },
+                            { value: 'other', key: 'captain.genderOther' },
+                        ].map((option) => (
+                            <button
+                                key={option.value}
+                                type="button"
+                                role="radio"
+                                aria-checked={gender === option.value}
+                                onClick={() => setGender(option.value)}
+                                className={`min-h-12 rounded-[14px] px-2 text-sm font-semibold leading-tight ${gender === option.value ? 'bg-ink text-white' : 'bg-white ring-1 ring-line'}`}
+                            >
+                                {t(option.key)}
+                            </button>
+                        ))}
+                    </div>
+                </div>
 
                 <h2 className="mb-3 font-display text-lg font-semibold">{t('auth.vehicle')}</h2>
                 <div role="radiogroup" aria-label={t('auth.vehicleType')} className="mb-5 grid grid-cols-3 gap-2">

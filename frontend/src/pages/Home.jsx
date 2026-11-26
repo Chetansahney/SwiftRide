@@ -8,11 +8,15 @@ import ConfirmRide from '../components/ConfirmRide';
 import LookingForDriver from '../components/LookingForDriver';
 import WaitingForDriver from '../components/WaitingForDriver';
 import LiveTracking from '../components/livetracking';
+import WomanIcon from '../components/ui/WomanIcon';
+import ShareTripSheet from '../components/safety/ShareTripSheet';
+import SosSheet from '../components/safety/SosSheet';
+import ReportSheet from '../components/safety/ReportSheet';
 import { LanguageToggle, Logo } from '../components/ui/Brand';
 import { UserDataContext } from '../context/UserContext';
 import { useLanguage } from '../i18n/LanguageContext';
 import { STRINGS } from '../i18n/strings';
-import { FEATURES, shortPlace } from '../lib/config';
+import { FEATURES, isLateEvening, shortPlace } from '../lib/config';
 import { reverseGeocode, useLocation } from '../lib/maps';
 import { addRecentPlace, getRecentPlaces, getSavedPlaces, savePlace } from '../lib/places';
 import useSpeechInput from '../lib/useSpeechInput';
@@ -67,6 +71,32 @@ const Home = () => {
     const [confirmedRide, setConfirmedRide] = useState(null);
     const [rideOtp, setRideOtp] = useState(null);
     const [ride, setRide] = useState(null);
+
+    // Safety: "I'm a woman travelling" lives on the profile (falls back to this
+    // device before the profile loads), plus the share / SOS / report sheets.
+    const [localWomenMode, setLocalWomenMode] = useState(() => localStorage.getItem('swiftride.womenMode') === '1');
+    const womenMode = user?.safetyPrefs?.travellingAsWoman ?? localWomenMode;
+    const [allowAnyCaptain, setAllowAnyCaptain] = useState(true);
+    const [shareSheet, setShareSheet] = useState(null);
+    const [sosOpen, setSosOpen] = useState(false);
+    const [reportOpen, setReportOpen] = useState(false);
+    const shareNudgeRef = useRef({ womenMode: false, shareAtNight: true });
+    useEffect(() => {
+        shareNudgeRef.current = { womenMode, shareAtNight: user?.safetyPrefs?.shareAtNight !== false };
+    });
+
+    const toggleWomenMode = () => {
+        const next = !womenMode;
+        setLocalWomenMode(next);
+        localStorage.setItem('swiftride.womenMode', next ? '1' : '0');
+        if (user) {
+            setUser({ ...user, safetyPrefs: { ...(user.safetyPrefs || {}), travellingAsWoman: next } });
+            axios
+                .patch(`${API}/users/safety`, { safetyPrefs: { travellingAsWoman: next } }, { headers: authHeaders() })
+                .then((response) => setUser(response.data))
+                .catch(() => {});
+        }
+    };
 
     const destinationInputRef = useRef(null);
     const pickupInputRef = useRef(null);
@@ -235,9 +265,25 @@ const Home = () => {
             if (!confirmed.captain || !confirmed.captain.vehicle) {
                 fetchRideDetails(confirmed._id);
             }
+            // Late at night, or for women riders, offer to share the live trip straight away.
+            const nudge = shareNudgeRef.current;
+            const late = isLateEvening() && nudge.shareAtNight;
+            if (late || nudge.womenMode) {
+                setTimeout(() => setShareSheet(late ? 'night' : 'prompt'), 700);
+            }
+        };
+        // Captain reached the pickup: show "arrived" with the free-waiting countdown.
+        const handleCaptainArrived = (arrived) => {
+            if (!arrived) return;
+            setRide(arrived);
+            setConfirmedRide(arrived);
         };
         socket.on('ride-confirmed', handleRideConfirmed);
-        return () => socket.off('ride-confirmed', handleRideConfirmed);
+        socket.on('captain-arrived', handleCaptainArrived);
+        return () => {
+            socket.off('ride-confirmed', handleRideConfirmed);
+            socket.off('captain-arrived', handleCaptainArrived);
+        };
     }, []);
 
     useEffect(() => {
@@ -327,7 +373,14 @@ const Home = () => {
         try {
             const response = await axios.post(
                 `${API}/rides/create`,
-                { origin: pickup, destination, vehicleType },
+                {
+                    origin: pickup,
+                    destination,
+                    vehicleType,
+                    travellingAsWoman: womenMode,
+                    // With no woman captain nearby the rider chooses: any verified captain, or keep waiting.
+                    preferWomenCaptain: womenMode && !(nearby && nearby.women?.[vehicleType] == null && allowAnyCaptain),
+                },
                 { headers: authHeaders() }
             );
             setCreatedRide(response.data.ride || null);
@@ -354,7 +407,7 @@ const Home = () => {
     // One card that morphs: a floating "where to?" card, then a full "Plan your ride" sheet.
     const cardShape = panelOpen
         ? 'inset-x-0 bottom-0 h-[calc(100%-5.5rem)] rounded-t-[28px] rounded-b-none'
-        : 'inset-x-3 bottom-4 h-[204px] rounded-[26px]';
+        : 'inset-x-3 bottom-4 h-[262px] rounded-[26px]';
 
     const micButton = (size) =>
         voice.supported ? (
@@ -449,6 +502,28 @@ const Home = () => {
                                 );
                             })}
                         </div>
+
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={womenMode}
+                            onClick={toggleWomenMode}
+                            className={`flex h-[50px] items-center gap-3 rounded-[16px] px-3 text-left transition ${womenMode ? 'bg-ink text-white' : 'bg-paper text-ink'}`}
+                        >
+                            <span
+                                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${womenMode ? 'bg-volt text-ink' : 'bg-white text-ink'}`}
+                                aria-hidden="true"
+                            >
+                                <WomanIcon size={22} />
+                            </span>
+                            <span className="flex min-w-0 flex-1 flex-col">
+                                <strong className="text-sm font-semibold leading-tight">{t('safety.womanToggle')}</strong>
+                                <span className={`truncate text-[11px] ${womenMode ? 'text-[#B4B8C0]' : 'text-muted'}`}>{t('safety.womanToggleSub')}</span>
+                            </span>
+                            <span className={`flex h-7 w-12 shrink-0 items-center rounded-full p-0.5 transition ${womenMode ? 'bg-volt' : 'bg-[#C5C9D0]'}`} aria-hidden="true">
+                                <span className={`h-6 w-6 rounded-full bg-white shadow transition ${womenMode ? 'translate-x-5' : ''}`} />
+                            </span>
+                        </button>
                     </div>
                 ) : (
                     <div key="search" className="flex h-full flex-col gap-4 px-5 pb-6 pt-3 animate-fade-up">
@@ -665,6 +740,9 @@ const Home = () => {
                     selectedVehicle={selectedVehicle}
                     setSelectedVehicle={setSelectedVehicle}
                     nearby={nearby}
+                    womenMode={womenMode}
+                    allowAnyCaptain={allowAnyCaptain}
+                    setAllowAnyCaptain={setAllowAnyCaptain}
                     onBack={() => {
                         setVehiclePanel(false);
                         setPanelOpen(true);
@@ -700,11 +778,29 @@ const Home = () => {
 
             <Sheet open={waitingForDriver}>
                 <WaitingForDriver
+                    key={(ride || confirmedRide || createdRide)?._id || 'none'}
                     ride={ride || confirmedRide || createdRide}
                     otp={rideOtp}
                     setWaitingForDriver={setWaitingForDriver}
+                    onShare={() => setShareSheet('manual')}
+                    onReport={() => setReportOpen(true)}
+                    onSos={() => setSosOpen(true)}
                 />
             </Sheet>
+
+            <ShareTripSheet
+                open={Boolean(shareSheet)}
+                onClose={() => setShareSheet(null)}
+                ride={ride || confirmedRide || createdRide}
+                prompt={shareSheet === 'night' ? t('safety.shareNightPrompt') : shareSheet === 'prompt' ? t('safety.sharePrompt') : undefined}
+            />
+            <SosSheet
+                open={sosOpen}
+                onClose={() => setSosOpen(false)}
+                ride={ride || confirmedRide || createdRide}
+                onShareWithContacts={() => setShareSheet('manual')}
+            />
+            <ReportSheet open={reportOpen} onClose={() => setReportOpen(false)} ride={ride || confirmedRide || createdRide} />
         </div>
     );
 };

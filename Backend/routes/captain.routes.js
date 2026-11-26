@@ -21,5 +21,14 @@ router.get('/profile', authMiddleware.authCaptain, captainController.getCaptainP
 
 router.get('/logout', authMiddleware.authCaptain, captainController.logoutCaptain);
 
+router.post('/shift-selfie', authMiddleware.authCaptain, captainController.uploadShiftSelfie);
+
+router.patch('/settings',
+    authMiddleware.authCaptain,
+    body('gender').optional({ values: 'null' }).isIn(['female', 'male', 'other', '']).withMessage("Gender must be female, male or other"),
+    body('womenRidersOnly').optional().isBoolean(),
+    captainController.updateSettings
+);
+
 
 module.exports=router;
