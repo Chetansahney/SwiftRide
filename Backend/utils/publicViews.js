@@ -3,7 +3,7 @@
 // captains see only the rider's first name. No emails, phone numbers,
 // last names or socket IDs cross over.
 
-const SHIFT_MS = 12 * 60 * 60 * 1000;
+const { currentShiftWindow } = require('./shiftWindow');
 
 function toPlain(doc) {
     if (!doc) return doc;
@@ -13,7 +13,8 @@ function toPlain(doc) {
 function publicCaptain(captain) {
     if (!captain || typeof captain !== 'object' || !captain.name) return captain;
     const plain = toPlain(captain);
-    const takenAt = plain.shiftSelfie?.takenAt ? new Date(plain.shiftSelfie.takenAt) : null;
+    const selfie = plain.shiftSelfie || {};
+    const checkedThisShift = selfie.windowId === currentShiftWindow().id && selfie.status === 'verified';
     return {
         _id: plain._id,
         name: { firstname: plain.name?.firstname },
@@ -27,8 +28,9 @@ function publicCaptain(captain) {
             }
             : undefined,
         isWoman: plain.gender === 'female',
-        selfieCheckedToday: Boolean(takenAt && Date.now() - takenAt.getTime() < SHIFT_MS),
-        photo: plain.shiftSelfie?.image || undefined,
+        verified: plain.verification?.status === 'verified',
+        selfieCheckedToday: checkedThisShift,
+        photo: checkedThisShift ? selfie.image : undefined,
     };
 }
 

@@ -10,8 +10,11 @@ const cookieParser=require('cookie-parser');
 const captainRoutes=require('./routes/captain.routes');
 const mapsRoutes=require('./routes/maps.routes');
 const rideRoutes=require('./routes/ride.routes');
+const adminRoutes=require('./routes/admin.routes');
 
 
+// Identity verification sends a licence photo and three selfies.
+app.use('/captains/verification', express.json({ limit: '4mb' }));
 // 1 MB so captains can upload a compressed shift selfie.
 app.use(express.json({ limit: '1mb' }));
 
@@ -31,6 +34,8 @@ app.use('/captains',captainRoutes);//yaha pe humne captainRoutes ko use kiya hai
 
 app.use('/maps',mapsRoutes);//yaha pe humne mapsRoutes ko use kiya hai taaki jab bhi /maps route pe request aayegi toh yeh mapsRoutes ke andar jaake dekhega ki waha pe konsa route match ho raha hai aur uske according response dega
 
-app.use('/rides',rideRoutes);//yaha pe humne rideRoutes ko use kiya hai taaki jab bhi /rides route pe request aayegi toh yeh rideRoutes ke andar jaake dekhega ki waha pe konsa route match ho raha hai aur uske according response dega
+app.use('/rides',rideRoutes);
+
+app.use('/admin',adminRoutes);//yaha pe humne rideRoutes ko use kiya hai taaki jab bhi /rides route pe request aayegi toh yeh rideRoutes ke andar jaake dekhega ki waha pe konsa route match ho raha hai aur uske according response dega
 
 module.exports = app;// to use this app in anyu other files we want

@@ -17,7 +17,18 @@ PORT=3000
 DB_CONNECT=your_mongodb_uri
 JWT_SECRET=your_jwt_secret
 GOOGLE_MAPS_API=your_google_maps_api_key
+# Licence/vehicle checks. Only "test" exists until a DigiLocker/KYC provider is signed up.
+VERIFICATION_PROVIDER=test
+# Long random string; reviewers enter it on /admin/review. Admin routes are off without it.
+ADMIN_KEY=your_admin_key
 ```
+
+## Captain verification
+
+- **Once, after sign-up** (`POST /captains/verification`): licence number, date of birth, licence photo and three live selfies (straight, head left, head right). The licence and vehicle are checked through the verification provider (test-only for now; owner name is not checked). `services/faceEngine.js` then matches the selfie against the licence photo on the server, with no cloud service: a face fingerprint decides, 51 stable face "dots" aligned in 3D act as a red flag, and the head-turn photos are the liveness check. The result is `verified`, `in_review` (a person checks it at `/admin/review`) or `rejected` with reasons.
+- **Every shift window** (`POST /captains/shift-selfie`): 6 AM–2 PM, 2 PM–10 PM, 10 PM–6 AM India time (`utils/shiftWindow.js`). Captains only get ride requests when verified and their selfie for the current window matched.
+- **Privacy:** the licence number is stored only as a keyed hash plus its last 4 digits. Photos are kept only until a reviewer decides. Face fingerprints are never sent to clients.
+- **Thresholds** in `faceEngine.js` were calibrated on low-quality web photos. Re-tune them on real licence and selfie pairs before launch.
 
 ## Data Models
 

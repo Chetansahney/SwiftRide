@@ -58,10 +58,61 @@ const captainSchema = new mongoose.Schema({
     // Strikes from "driver asked for extra" and similar reports; paused for review when suspended.
     strikes: { type: Number, default: 0 },
     suspended: { type: Boolean, default: false },
-    // Selfie taken at the start of each shift, shown to riders so they can check it's the same person.
+    // Selfie for the current shift window (6 AM–2 PM, 2 PM–10 PM, 10 PM–6 AM IST),
+    // face-matched against the verified reference. Shown to riders.
     shiftSelfie: {
         image: { type: String, select: false },
         takenAt: Date,
+        windowId: String,
+        score: Number,
+        status: { type: String, enum: ['verified', 'in_review', 'rejected'] },
+        attempts: Number,
+    },
+    // One-time identity check at sign-up: licence + vehicle (via the verification
+    // provider) and a liveness selfie face-matched against the licence photo.
+    verification: {
+        status: {
+            type: String,
+            enum: ['not_started', 'in_review', 'verified', 'rejected'],
+            default: 'not_started',
+        },
+        reasons: [String],
+        submittedAt: Date,
+        decidedAt: Date,
+        decidedBy: { type: String, enum: ['auto', 'admin'] },
+        dl: {
+            last4: String,
+            numberHash: { type: String, select: false },
+            name: String,
+            dob: String,
+            validUntil: String,
+            classes: [String],
+            source: String,
+        },
+        vehicle: {
+            plate: String,
+            vehicleClass: String,
+            commercial: Boolean,
+            fitnessUpto: String,
+            insuranceUpto: String,
+            permitUpto: String,
+            source: String,
+        },
+        face: {
+            fingerprintScore: Number,
+            landmarkScore: Number,
+            landmarkRedFlag: Boolean,
+            real: Number,
+            livenessPassed: Boolean,
+            yaw: [Number],
+        },
+        // Face fingerprints used for every shift check. Never sent to clients.
+        referenceEmbedding: { type: [Number], select: false },
+        dlEmbedding: { type: [Number], select: false },
+        referenceLandmarks: { type: [Number], select: false },
+        // Kept only until a person has reviewed the case, then deleted.
+        dlImage: { type: String, select: false },
+        selfieImage: { type: String, select: false },
     },
     location: {           // ✅ moved to top level
         type: {

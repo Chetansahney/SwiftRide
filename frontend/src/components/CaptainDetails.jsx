@@ -1,6 +1,7 @@
 import React, { useContext, useEffect, useState } from 'react';
 import axios from 'axios';
-import { BadgeCheck, Power, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { BadgeCheck, ChevronRight, Clock, Power, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { CaptainDataContext } from '../context/CaptainContext';
 import VehicleArt from './ui/VehicleArt';
 import NumberPlate from './ui/NumberPlate';
@@ -8,15 +9,35 @@ import ShiftSelfieGate from './captain/ShiftSelfieGate';
 import CaptainSafetySettings from './captain/CaptainSafetySettings';
 import { useLanguage } from '../i18n/LanguageContext';
 import { vehicleMeta } from '../lib/config';
-
-const SHIFT_MS = 12 * 60 * 60 * 1000;
+import { API, captainAuth } from '../lib/api';
 
 const CaptainDetails = () => {
     const { t } = useLanguage();
     const { captain, setCaptain } = useContext(CaptainDataContext);
     const [error, setError] = useState(null);
     const [settingsOpen, setSettingsOpen] = useState(false);
-    const [now] = useState(() => Date.now());
+    const [verification, setVerification] = useState(null);
+
+    // Verification + this shift window's face check. Re-checks when the window ends.
+    useEffect(() => {
+        let cancelled = false;
+        let timer;
+        const load = () =>
+            axios
+                .get(`${API}/captains/verification`, captainAuth())
+                .then(({ data }) => {
+                    if (cancelled) return;
+                    setVerification(data.verification);
+                    const msLeft = new Date(data.verification.shift.endsAt).getTime() - Date.now();
+                    timer = setTimeout(load, Math.max(5000, msLeft + 2000));
+                })
+                .catch((fetchError) => console.error('Verification fetch failed:', fetchError));
+        load();
+        return () => {
+            cancelled = true;
+            clearTimeout(timer);
+        };
+    }, []);
 
     useEffect(() => {
         if (captain) return undefined;
@@ -42,8 +63,8 @@ const CaptainDetails = () => {
     const displayName = [captain?.name?.firstname, captain?.name?.lastname].filter(Boolean).join(' ') || 'Captain';
     const vehicle = captain?.vehicle || {};
     const meta = vehicleMeta(vehicle.vehicleType || 'car');
-    const selfieAt = captain?.shiftSelfie?.takenAt ? new Date(captain.shiftSelfie.takenAt).getTime() : 0;
-    const shiftStarted = selfieAt && now - selfieAt < SHIFT_MS;
+    const status = verification?.status;
+    const shift = verification?.shift;
     const strikes = captain?.strikes || 0;
     const stats = [
         { label: t('captain.hours'), value: captain?.stats?.hoursOnline ?? '--' },
@@ -58,17 +79,26 @@ const CaptainDetails = () => {
                     <ShieldAlert size={22} className="shrink-0 text-[#FF8A8F]" aria-hidden="true" />
                     <span className="text-sm font-semibold leading-snug">{t('captain.suspended')}</span>
                 </div>
-            ) : !shiftStarted ? (
-                <ShiftSelfieGate
-                    onDone={(takenAt) => setCaptain({ ...captain, shiftSelfie: { ...(captain?.shiftSelfie || {}), takenAt } })}
-                />
+            ) : !verification ? null : status === 'in_review' ? (
+                <div className="flex items-start gap-3 rounded-[18px] bg-night-card p-4" role="status">
+                    <Clock size={22} className="shrink-0 text-volt" aria-hidden="true" />
+                    <span className="text-sm font-semibold leading-snug">{t('verify.bannerReview')}</span>
+                </div>
+            ) : status !== 'verified' ? (
+                <Link to="/captain/verify" className="flex min-h-16 items-center gap-3 rounded-[18px] bg-volt p-4 text-ink">
+                    <ShieldCheck size={24} className="shrink-0" aria-hidden="true" />
+                    <strong className="flex-1 text-base font-semibold leading-snug">{t('verify.banner')}</strong>
+                    <ChevronRight size={22} aria-hidden="true" />
+                </Link>
+            ) : shift.status !== 'verified' ? (
+                <ShiftSelfieGate key={shift.windowId} shift={shift} onUpdate={setVerification} />
             ) : (
                 <div className="flex h-16 items-center justify-between rounded-[18px] bg-volt pl-5 pr-2.5 text-ink" role="status">
                     <span className="flex flex-col">
                         <strong className="font-display text-lg font-semibold">{t('captain.online')}</strong>
                         <span className="inline-flex items-center gap-1 text-xs font-medium">
                             <BadgeCheck size={13} aria-hidden="true" />
-                            {t('captain.selfieDone')}
+                            {t('shift.verified', { window: shift.label })}
                         </span>
                     </span>
                     <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-ink text-volt" aria-hidden="true">

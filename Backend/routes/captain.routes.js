@@ -3,6 +3,7 @@ const router=express.Router();
 const captainController=require('../controllers/captain.controller');
 const {body}=require('express-validator');
 const authMiddleware=require('../middleware/auth.middleware');
+const verificationController=require('../controllers/verification.controller');
 
 router.post('/register',[body('name').isLength({min:3}).withMessage("Name should be at least 3 characters long"),
 body('email').isEmail().withMessage("Please enter a valid email address"),
@@ -21,7 +22,10 @@ router.get('/profile', authMiddleware.authCaptain, captainController.getCaptainP
 
 router.get('/logout', authMiddleware.authCaptain, captainController.logoutCaptain);
 
-router.post('/shift-selfie', authMiddleware.authCaptain, captainController.uploadShiftSelfie);
+// Identity check (licence + vehicle + face) and the face check for each shift window.
+router.get('/verification', authMiddleware.authCaptain, verificationController.getVerification);
+router.post('/verification', authMiddleware.authCaptain, verificationController.submitVerification);
+router.post('/shift-selfie', authMiddleware.authCaptain, verificationController.uploadShiftSelfie);
 
 router.patch('/settings',
     authMiddleware.authCaptain,

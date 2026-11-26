@@ -14,6 +14,8 @@ import Riding from './pages/Riding';
 import CaptainRiding from './pages/CaptainRiding';
 import Account from './pages/Account';
 import TrackTrip from './pages/TrackTrip';
+import CaptainVerify from './pages/CaptainVerify';
+import AdminReview from './pages/AdminReview';
 const App = () => {
   return (
     <div className="h-full">
@@ -56,6 +58,13 @@ const App = () => {
             <CaptainHome />
           </CaptainProtectWrapper>
         } />
+        <Route path="/captain/verify" element={
+          <CaptainProtectWrapper>
+            <CaptainVerify />
+          </CaptainProtectWrapper>
+        } />
+        {/* Team-only: approve or reject verifications (needs the ADMIN_KEY). */}
+        <Route path="/admin/review" element={<AdminReview />} />
         <Route path="/captain-riding" element={
           <CaptainProtectWrapper>
             <CaptainRiding />

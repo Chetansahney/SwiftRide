@@ -1,17 +1,20 @@
 const axios = require("axios");
 const captainModel = require('../models/captain.models');
+const { currentShiftWindow } = require('../utils/shiftWindow');
 
 // "22.5726,88.3639" — the rider's current location sent as a pickup.
 const COORDINATE_PAIR = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/;
 module.exports.COORDINATE_PAIR = COORDINATE_PAIR;
 
-// Captains only get rides if they're not paused for review and have taken
-// their selfie for this shift (within the last 12 hours).
-const SHIFT_HOURS = 12;
+// Captains only get rides if they're not paused for review, passed identity
+// verification, and their face check for the current shift window
+// (6 AM–2 PM, 2 PM–10 PM, 10 PM–6 AM India time) matched.
 function dispatchableFilter() {
     return {
         suspended: { $ne: true },
-        'shiftSelfie.takenAt': { $gte: new Date(Date.now() - SHIFT_HOURS * 60 * 60 * 1000) },
+        'verification.status': 'verified',
+        'shiftSelfie.windowId': currentShiftWindow().id,
+        'shiftSelfie.status': 'verified',
     };
 }
 module.exports.dispatchableFilter = dispatchableFilter;

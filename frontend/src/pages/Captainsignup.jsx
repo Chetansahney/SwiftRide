@@ -56,7 +56,7 @@ const Captainsignup = () => {
             if (response.status === 201) {
                 setCaptain(response.data.captain);
                 localStorage.setItem('captainToken', response.data.token);
-                navigate('/captainhome');
+                navigate('/captain/verify');
                 return;
             }
         } catch (err) {
