@@ -12,7 +12,8 @@ const OSRM_URL = process.env.OSRM_URL || 'https://routing.openstreetmap.de/route
 const TRAFFIC_FACTOR = Number(process.env.ROUTE_TRAFFIC_FACTOR) || 1.6;
 // Used when routing is unavailable: straight line × typical road detour, at city speed.
 const ROAD_DETOUR = 1.35;
-const CITY_KMPH = 20;
+// ~25 km/h matches OSRM × traffic factor on typical city trips.
+const CITY_KMPH = 25;
 // India's bounding box, so a search never jumps to another country.
 const INDIA_BBOX = '68.1,6.5,97.4,35.7';
 
@@ -22,6 +23,10 @@ const http = axios.create({
 });
 
 // ---------- small helpers ----------
+
+const quietWarn = (...args) => {
+    if (process.env.NODE_ENV !== 'test') console.warn(...args);
+};
 
 // In-memory cache with expiry and a size cap (oldest entries dropped first).
 function createCache(maxEntries, ttlMs) {
@@ -62,6 +67,10 @@ const routeCache = createCache(3000, 6 * 60 * 60 * 1000);
 const transitCache = createCache(2000, 7 * DAY);
 const photonThrottle = createThrottle(120);
 const osrmThrottle = createThrottle(150);
+
+// Minutes as shown everywhere (offer card, rider chip, captain banner):
+// nearest minute, never below 1.
+const etaMinutes = (seconds) => Math.max(1, Math.round(seconds / 60));
 
 const normalise = (text) => String(text || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -162,6 +171,19 @@ async function reverse(lat, lng) {
 
 // ---------- routes ----------
 
+// Shortest distance among the routes, unless it is much slower than the
+// fastest (then a jam is likely): saves the rider distance and fare without
+// sending them into traffic.
+const MAX_SLOWER = 1.25;
+// prefer "fastest": a captain driving to a pickup takes the quickest way, and
+// that is the time riders are told.
+function pickRoute(routes, prefer = 'shortest') {
+    if (!routes?.length) return null;
+    const fastest = Math.min(...routes.map((r) => r.duration));
+    if (prefer === 'fastest') return routes.find((r) => r.duration === fastest);
+    return routes.filter((r) => r.duration <= fastest * MAX_SLOWER).sort((a, b) => a.distance - b.distance)[0];
+}
+
 function estimatedRoute(from, to) {
     const meters = distanceInMeters(from.lat, from.lng, to.lat, to.lng) * ROAD_DETOUR;
     return {
@@ -175,29 +197,157 @@ function estimatedRoute(from, to) {
     };
 }
 
+const ROUTE_TIMEOUT_MS = 10000;
+
+// Fair use: after "429 Too Many Requests" (or a timeout) the router is left
+// alone for a while and estimates are used instead.
+let osrmPausedUntil = 0;
+async function osrmGet(url, options) {
+    if (Date.now() < osrmPausedUntil) throw new Error('router paused (fair-use back-off)');
+    await osrmThrottle();
+    try {
+        return await http.get(url, { timeout: ROUTE_TIMEOUT_MS, ...options });
+    } catch (error) {
+        if (error.response?.status === 429) osrmPausedUntil = Date.now() + 30000;
+        else if (error.code === 'ECONNABORTED' || /timeout/i.test(error.message)) osrmPausedUntil = Date.now() + 10000;
+        throw error;
+    }
+}
+const SNAP_RADIUS_M = 60;
+const snapCache = createCache(5000, DAY);
+const roadTimeCache = createCache(5000, 30 * 1000);
+const pointKey = (p) => `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`;
+
+// The road points a vehicle could stop at for a place: up to 3 distinct points
+// within ~60 m. A pickup beside a flyover snaps both to the flyover deck and to
+// the street below, and the router then uses whichever is quicker to reach —
+// instead of sending a driver 2.5 km round to the flyover's start.
+async function snapCandidates(point) {
+    const key = pointKey(point);
+    const cached = snapCache.get(key);
+    if (cached) return cached;
+    let points = [point];
+    try {
+        const { data } = await osrmGet(`${OSRM_URL}/nearest/v1/driving/${point.lng},${point.lat}`, { params: { number: 5 } });
+        const seen = new Set();
+        const near = (data?.waypoints || [])
+            .filter((w) => w.distance <= SNAP_RADIUS_M)
+            .map((w) => ({ lng: w.location[0], lat: w.location[1] }))
+            .filter((p) => {
+                // Flyover deck and the street below can be ~3 m apart: compare precisely.
+                const k = `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`;
+                if (seen.has(k)) return false;
+                seen.add(k);
+                return true;
+            })
+            .slice(0, 3);
+        if (near.length) points = near;
+    } catch (error) {
+        quietWarn('[geo] snapping unavailable:', error.message);
+    }
+    snapCache.set(key, points);
+    return points;
+}
+
+// For each source, the quickest of the destination's road points: { j, durationS, distanceM } (raw, not traffic-adjusted).
+function bestPerSource(durations, distances) {
+    return durations.map((row, i) => {
+        let best = null;
+        (row || []).forEach((seconds, j) => {
+            if (seconds == null) return;
+            if (!best || seconds < best.seconds) best = { j, seconds, metres: distances?.[i]?.[j] };
+        });
+        return best;
+    });
+}
+
+// One OSRM "table" request: road time from each source to each target.
+async function table(sources, targets) {
+    const coords = [...sources, ...targets].map((p) => `${p.lng},${p.lat}`).join(';');
+    const { data } = await osrmGet(`${OSRM_URL}/table/v1/driving/${coords}`, {
+        params: {
+            sources: sources.map((_, i) => i).join(';'),
+            destinations: targets.map((_, j) => sources.length + j).join(';'),
+            annotations: 'duration,distance',
+        },
+    });
+    if (data?.code !== 'Ok') throw new Error(data?.code || 'NoTable');
+    return data;
+}
+
+// Road time and distance from many points to one destination in ONE request
+// (OSRM "table"), traffic-adjusted. This is THE pickup ETA: the captain's
+// offer card, the rider's "X min away" and the captain's banner all come from
+// it. Answers are cached for 30 s; if the router is down or slow, a
+// straight-line estimate is used and marked `estimated`.
+async function roadTimes(sources, destination) {
+    if (!sources.length) return [];
+    const estimate = (point) => {
+        const { distanceM, durationS } = estimatedRoute(point, destination);
+        return { distanceM, durationS, estimated: true };
+    };
+    const results = sources.map((point) => roadTimeCache.get(`${pointKey(point)}>${pointKey(destination)}`));
+    const missing = sources.map((point, i) => (results[i] ? null : i)).filter((i) => i != null);
+    if (!missing.length) return results;
+    try {
+        const targets = await snapCandidates(destination);
+        const data = await table(missing.map((i) => sources[i]), targets);
+        bestPerSource(data.durations, data.distances).forEach((best, k) => {
+            const i = missing[k];
+            const value = best
+                ? { durationS: Math.round(best.seconds * TRAFFIC_FACTOR), distanceM: Math.round(best.metres ?? estimate(sources[i]).distanceM), estimated: false }
+                : estimate(sources[i]);
+            results[i] = value;
+            if (!value.estimated) roadTimeCache.set(`${pointKey(sources[i])}>${pointKey(destination)}`, value);
+        });
+    } catch (error) {
+        quietWarn('[geo] road times unavailable, using estimates:', error.message);
+        for (const i of missing) results[i] = estimate(sources[i]);
+    }
+    return results;
+}
+
 // Road route between two points: distance, traffic-adjusted time, and the line
-// to draw. Falls back to a straight-line estimate if the router is down, so
-// fares and ETAs always work.
-async function route(from, to) {
-    const key = `${from.lat.toFixed(4)},${from.lng.toFixed(4)}>${to.lat.toFixed(4)},${to.lng.toFixed(4)}`;
+// to draw. Both ends snap to their quickest nearby road point (see above).
+// Falls back to a straight-line estimate if the router is down, so fares and
+// ETAs always work.
+async function route(from, to, { prefer = 'shortest' } = {}) {
+    const key = `${pointKey(from)}>${pointKey(to)}:${prefer}`;
     const cached = routeCache.get(key);
     if (cached) return cached;
     let result;
     try {
-        await osrmThrottle();
-        const { data } = await http.get(`${OSRM_URL}/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}`, {
-            params: { overview: 'simplified', geometries: 'geojson', alternatives: false, steps: false },
+        const [starts, ends] = await Promise.all([snapCandidates(from), snapCandidates(to)]);
+        let start = starts[0];
+        let end = ends[0];
+        if (starts.length > 1 || ends.length > 1) {
+            // Quickest pair of road points (one small table request).
+            const data = await table(starts, ends);
+            let best = null;
+            data.durations.forEach((row, i) =>
+                (row || []).forEach((seconds, j) => {
+                    if (seconds != null && (!best || seconds < best.seconds)) best = { i, j, seconds };
+                })
+            );
+            if (best) {
+                start = starts[best.i];
+                end = ends[best.j];
+            }
+        }
+        const { data } = await osrmGet(`${OSRM_URL}/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}`, {
+            params: { overview: 'full', geometries: 'geojson', alternatives: 3, steps: false },
         });
-        const best = data?.routes?.[0];
+        const best = pickRoute(data?.routes, prefer);
         if (data?.code !== 'Ok' || !best) throw new Error(data?.code || 'NoRoute');
         result = {
             distanceM: Math.round(best.distance),
             durationS: Math.round(best.duration * TRAFFIC_FACTOR),
             coordinates: best.geometry?.coordinates || [],
+            alternatives: data.routes.length,
             estimated: false,
         };
     } catch (error) {
-        console.warn('[geo] routing unavailable, using an estimate:', error.message);
+        quietWarn('[geo] routing unavailable, using an estimate:', error.message);
         result = estimatedRoute(from, to);
     }
     routeCache.set(key, result);
@@ -227,10 +377,10 @@ async function nearestStation(lat, lng) {
             best = { name: feature.properties.name, address, type: 'station', lat: stationLat, lng: stationLng };
         }
     } catch (error) {
-        console.warn('[geo] station lookup unavailable:', error.message);
+        quietWarn('[geo] station lookup unavailable:', error.message);
     }
     transitCache.set(key, best);
     return best;
 }
 
-module.exports = { suggest, geocode, reverse, route, nearestStation, distanceInMeters, labelOf, createCache, INDIA_BBOX };
+module.exports = { suggest, geocode, reverse, route, roadTimes, snapCandidates, bestPerSource, estimatedRoute, etaMinutes, pickRoute, nearestStation, distanceInMeters, labelOf, createCache, INDIA_BBOX };

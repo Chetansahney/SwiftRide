@@ -18,6 +18,16 @@ mapsService.getLocationCoordinates = async (address) => {
     throw new Error('Unable to geocode address. Status: ZERO_RESULTS');
 };
 mapsService.getDistanceTime = async () => ({ distance: '9.8 km', duration: '28 mins' });
+// Road times without the network: the same straight-line estimate the app
+// falls back to. Tests can replace geo.roadTimes to simulate real roads.
+const geo = require('../services/geo');
+const realisticRoadTimes = async (sources, destination) =>
+    sources.map((point) => {
+        const { distanceM, durationS } = geo.estimatedRoute(point, destination);
+        return { distanceM, durationS, estimated: true };
+    });
+geo.roadTimes = realisticRoadTimes;
+geo.route = async (from, to) => ({ ...geo.estimatedRoute(from, to), estimated: true });
 
 const app = require('../app');
 const captainModel = require('../models/captain.models');
@@ -90,4 +100,4 @@ async function bookRide(riderToken, extra = {}) {
     return res;
 }
 
-module.exports = { start, stop, reset, api, auth, rider, captain, bookRide, mongoose };
+module.exports = { start, stop, reset, api, auth, rider, captain, bookRide, mongoose, realisticRoadTimes };

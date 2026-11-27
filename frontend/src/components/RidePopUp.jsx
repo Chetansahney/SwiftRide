@@ -72,7 +72,7 @@ const RidePopUp = (props) => {
 
             {offer ? (
                 <div className="flex flex-wrap items-center gap-2 text-sm">
-                    {pickupDistance ? <span className="rounded-full bg-night-card px-3 py-1 font-semibold">{t('captain.pickupAway', { min: offer.etaMin, distance: pickupDistance })}</span> : null}
+                    {pickupDistance ? <span className="rounded-full bg-night-card px-3 py-1 font-semibold">{t('captain.pickupAway', { min: `${offer.estimated ? '~' : ''}${offer.etaMin}`, distance: pickupDistance })}</span> : null}
                     {offer.riderRating ? <span className="rounded-full bg-night-card px-3 py-1 text-night-muted">{t('captain.riderRating', { rating: offer.riderRating.toFixed(1) })}</span> : null}
                 </div>
             ) : null}

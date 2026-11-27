@@ -41,8 +41,8 @@ module.exports.getLocationCoordinates = async (address, near) => {
 
 const formatKm = (meters) => (meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1)} km`);
 function formatDuration(seconds) {
-    const minutes = Math.max(1, Math.round(seconds / 60));
-    if (minutes < 60) return `${minutes} mins`;
+    const minutes = geo.etaMinutes(seconds);
+    if (minutes < 60) return `${minutes} min${minutes === 1 ? "" : "s"}`;
     const hours = Math.floor(minutes / 60);
     const rest = minutes % 60;
     return `${hours} hour${hours > 1 ? 's' : ''}${rest ? ` ${rest} mins` : ''}`;
@@ -67,12 +67,12 @@ module.exports.getDistanceTime = async (origin, destination, near) => {
 };
 
 // Road line to draw on the map, between two places (addresses or "lat,lng").
-module.exports.getRoute = async (origin, destination, near) => {
+module.exports.getRoute = async (origin, destination, near, prefer = 'shortest') => {
     const [from, to] = await Promise.all([
         module.exports.getLocationCoordinates(origin, near),
         module.exports.getLocationCoordinates(destination, near),
     ]);
-    const result = await geo.route({ lat: from.latitude, lng: from.longitude }, { lat: to.latitude, lng: to.longitude });
+    const result = await geo.route({ lat: from.latitude, lng: from.longitude }, { lat: to.latitude, lng: to.longitude }, { prefer });
     return {
         from: { lat: from.latitude, lng: from.longitude },
         to: { lat: to.latitude, lng: to.longitude },

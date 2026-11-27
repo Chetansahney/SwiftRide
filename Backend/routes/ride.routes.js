@@ -36,6 +36,13 @@ router.get('/calculate-fare', authUser, expensiveLimiter, place('origin', query)
 // Distance from the pickup to the nearest available driver of each vehicle type.
 router.get('/nearby', authUser, expensiveLimiter, place('origin', query), ...nearQuery, validate, rideController.getNearbyDrivers);
 router.get('/active', authUser, rideController.getActiveRide);
+router.get('/nearby-vehicles',
+    authUser,
+    query('lat').isFloat({ min: -90, max: 90 }),
+    query('lng').isFloat({ min: -180, max: 180 }),
+    validate,
+    rideController.nearbyVehicles
+);
 router.get('/history', authUser, rideController.getRideHistory);
 router.post('/complete-payment',
     authUser,

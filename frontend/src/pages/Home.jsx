@@ -26,10 +26,11 @@ const API = import.meta.env.VITE_BASE_URL;
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('userToken')}` });
 
 // Bottom sheet that slides up over the map.
-function Sheet({ open, children, className = '' }) {
+// `compact` sheets leave the top ~40% of the screen for the map (route, vehicles).
+function Sheet({ open, children, className = '', compact = false }) {
     return (
         <div
-            className={`sheet fixed inset-x-0 bottom-0 z-30 mx-auto max-h-[92%] max-w-xl overflow-y-auto px-5 pb-7 pt-3 transition-transform duration-500 ease-in-out ${open ? 'translate-y-0' : 'pointer-events-none translate-y-full shadow-none'} ${className}`}
+            className={`sheet fixed inset-x-0 bottom-0 z-30 mx-auto ${compact ? 'max-h-[60%]' : 'max-h-[92%]'} max-w-xl overflow-y-auto px-5 pb-7 pt-3 transition-transform duration-500 ease-in-out ${open ? 'translate-y-0' : 'pointer-events-none translate-y-full shadow-none'} ${className}`}
             aria-hidden={!open}
         >
             {children}
@@ -498,7 +499,13 @@ const Home = () => {
     return (
         <div className="relative h-full overflow-hidden bg-[#EEF0F2]">
             <div className="absolute inset-0 z-0">
-                <LiveTracking />
+                <LiveTracking
+                    pickup={pickup}
+                    destination={destination}
+                    showRoute={Boolean(pickup && destination && (vehiclePanel || confirmRidePanel || lookingForDriverPanel || waitingForDriver))}
+                    vehicleType={vehiclePanel || confirmRidePanel || lookingForDriverPanel ? selectedVehicle : undefined}
+                    ride={ride || confirmedRide || createdRide}
+                />
             </div>
 
             {notice ? (
@@ -809,7 +816,7 @@ const Home = () => {
                 ) : null}
             </Sheet>
 
-            <Sheet open={vehiclePanel}>
+            <Sheet open={vehiclePanel} compact>
                 <VehiclePanel
                     setVehiclePanel={setVehiclePanel}
                     setConfirmRidePanel={setConfirmRidePanel}
@@ -828,7 +835,7 @@ const Home = () => {
                 />
             </Sheet>
 
-            <Sheet open={confirmRidePanel}>
+            <Sheet open={confirmRidePanel} compact>
                 <ConfirmRide
                     setConfirmRidePanel={setConfirmRidePanel}
                     setVehiclePanel={setVehiclePanel}
@@ -842,7 +849,7 @@ const Home = () => {
                 />
             </Sheet>
 
-            <Sheet open={lookingForDriverPanel}>
+            <Sheet open={lookingForDriverPanel} compact>
                 <LookingForDriver
                     setLookingForDriverPanel={setLookingForDriverPanel}
                     setWaitingForDriver={setWaitingForDriver}
@@ -859,7 +866,7 @@ const Home = () => {
                 />
             </Sheet>
 
-            <Sheet open={waitingForDriver}>
+            <Sheet open={waitingForDriver} compact>
                 <WaitingForDriver
                     key={(ride || confirmedRide || createdRide)?._id || 'none'}
                     ride={ride || confirmedRide || createdRide}

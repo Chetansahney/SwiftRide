@@ -8,7 +8,8 @@
 // time, with OFFER_TIMEOUT to accept. If nobody accepts, the next best are
 // asked, then the search widens. Ranking (lower is better):
 //
-//   pickup time (min)
+//   pickup time by road (min) — the same number the captain's offer card and
+//     the rider's "X min away" show (OSRM fastest route × traffic factor)
 //   + RATING_WEIGHT × |captain rating − rider rating|   (good riders get good captains)
 //   + reliability penalty (low acceptance, recent drops)
 //   − small boost for captains who've waited longest since their last ride
@@ -21,7 +22,9 @@ const rideModel = require('../models/ride.model');
 const captainModel = require('../models/captain.models');
 const userModel = require('../models/user.models');
 const { dispatchableFilter } = require('./maps.services');
-const { distanceInMeters } = require('./geo');
+const geo = require('./geo');
+
+const { distanceInMeters } = geo;
 const { CONFIRMED_WOMAN_FILTER } = require('../utils/womenSafety');
 const { publicRide } = require('../utils/publicViews');
 
@@ -33,9 +36,9 @@ const CONFIG = {
     // Ring sizes per vehicle (k): ~0.9, 1.8, 2.8, 3.7, 5.5 km; cabs reach ~8.3 km.
     RINGS: { moto: [1, 2, 3, 4, 6], auto: [1, 2, 3, 4, 6], car: [1, 2, 3, 5, 7, 9] },
     RATING_WEIGHT: 3, // minutes per star of difference
-    // Average city speeds to the pickup, for ranking (km/h).
-    SPEED_KMPH: { moto: 22, auto: 18, car: 20 },
-    ROAD_DETOUR: 1.35,
+    // Road times are looked up (one OSRM "table" request per wave) for this many
+    // of the nearest eligible captains; ranking then uses real road time.
+    ROAD_CANDIDATES: 10,
     // A woman-only request with nobody found for this long asks the rider what to do.
     WOMEN_NOTICE_MS: num('DISPATCH_WOMEN_NOTICE_MS', 90000),
     REQUEST_TTL_MS: 10 * 60 * 1000,
@@ -55,12 +58,15 @@ function setNotifier(next) {
     notifier = next;
 }
 
-// Rank one captain for one ride (lower is better).
-function scoreCaptain(captain, ride, riderRating, now = Date.now()) {
+const pointOf = (captain) => {
     const [lng, lat] = captain.location?.coordinates || [];
-    const distanceM = distanceInMeters(ride.pickupPoint.lat, ride.pickupPoint.lng, lat, lng);
-    const speed = CONFIG.SPEED_KMPH[ride.vehicleType] || 20;
-    const etaMin = ((distanceM * CONFIG.ROAD_DETOUR) / 1000 / speed) * 60;
+    return { lat, lng };
+};
+
+// Rank one captain for one ride (lower is better). `road` is the captain's
+// road time/distance to the pickup ({ durationS, distanceM }).
+function scoreCaptain(captain, ride, riderRating, road, now = Date.now()) {
+    const etaMin = road.durationS / 60;
     const captainRating = smoothedRating(captain.ratingTotal, captain.ratingCount, PRIOR.captain);
     const ratingGap = Math.abs(captainRating - riderRating) * CONFIG.RATING_WEIGHT;
     const received = captain.offersReceived || 0;
@@ -70,8 +76,11 @@ function scoreCaptain(captain, ride, riderRating, now = Date.now()) {
     const fairness = -Math.min(30, Math.max(0, idleMin)) / 30;
     return {
         score: Math.round((etaMin + ratingGap + reliability + fairness) * 100) / 100,
-        etaMin: Math.max(1, Math.round(etaMin)),
-        distanceM: Math.round(distanceM),
+        // Rounded exactly like every other ETA in the apps.
+        etaMin: geo.etaMinutes(road.durationS),
+        etaS: road.durationS,
+        estimated: Boolean(road.estimated),
+        distanceM: road.distanceM,
         captainRating: Math.round(captainRating * 10) / 10,
     };
 }
@@ -104,9 +113,17 @@ async function candidates(ride, k, riderRating) {
         })
         .select('location vehicle gender genderCheck womenRidersOnly ratingTotal ratingCount offersReceived offersAccepted cancellations lastRideEndedAt socketId')
         .limit(200);
-    return found
+    // Nearest by straight line first, then real road times for those (rivers and
+    // one-way streets make "nearest" and "quickest to reach" different things).
+    const pickup = ride.pickupPoint;
+    const nearest = found
         .filter((captain) => eligible(captain, ride))
-        .map((captain) => ({ captain, ...scoreCaptain(captain, ride, riderRating) }))
+        .map((captain) => ({ captain, straightM: distanceInMeters(pickup.lat, pickup.lng, pointOf(captain).lat, pointOf(captain).lng) }))
+        .sort((a, b) => a.straightM - b.straightM)
+        .slice(0, CONFIG.ROAD_CANDIDATES);
+    const roads = await geo.roadTimes(nearest.map((c) => pointOf(c.captain)), pickup);
+    return nearest
+        .map((c, i) => ({ captain: c.captain, ...scoreCaptain(c.captain, ride, riderRating, roads[i]) }))
         .sort((a, b) => a.score - b.score);
 }
 
@@ -177,6 +194,8 @@ async function runWave(rideId, { force = false } = {}) {
         expiresAt,
         status: 'offered',
         etaMin: c.etaMin,
+        etaS: c.etaS,
+        estimated: c.estimated,
         distanceM: c.distanceM,
         score: c.score,
     }));
@@ -204,7 +223,7 @@ async function runWave(rideId, { force = false } = {}) {
         for (const c of chosen) {
             notifier.toCaptain(c.captain._id, 'new-ride', {
                 ...details,
-                offer: { expiresAt, etaMin: c.etaMin, distanceM: c.distanceM, riderRating: Math.round(riderRating * 10) / 10 },
+                offer: { expiresAt, etaMin: c.etaMin, etaS: c.etaS, estimated: c.estimated, distanceM: c.distanceM, riderRating: Math.round(riderRating * 10) / 10 },
             });
         }
     }
@@ -248,8 +267,21 @@ async function declineOffer(rideId, captainId) {
 }
 
 // The accepted captain's offer is marked; everyone else in the wave is told it's gone.
+// The ETA the captain accepted becomes the rider's first "X min away".
 async function settleAccepted(ride, captainId) {
     const others = (ride.offers || []).filter((offer) => offer.status === 'offered' && String(offer.captain) !== String(captainId));
+    const mine = (ride.offers || []).find((offer) => offer.status === 'offered' && String(offer.captain) === String(captainId));
+    if (mine?.etaS != null) {
+        if (!mine.estimated && ride.pickupPoint?.lat != null) {
+            const captainDoc = await captainModel.findById(captainId).select('location');
+            const [lng, lat] = captainDoc?.location?.coordinates || [];
+            if (lat != null) lastReal.set(String(ride._id), { etaS: mine.etaS, distanceM: mine.distanceM, straightM: distanceInMeters(lat, lng, ride.pickupPoint.lat, ride.pickupPoint.lng) });
+        }
+        await rideModel.updateOne(
+            { _id: ride._id },
+            { approach: { etaS: mine.etaS, distanceM: mine.distanceM, estimated: Boolean(mine.estimated), at: new Date() } }
+        );
+    }
     await rideModel.updateOne(
         { _id: ride._id },
         { $set: { 'offers.$[mine].status': 'accepted', 'offers.$[other].status': 'withdrawn', 'dispatch.nextAt': null } },
@@ -287,8 +319,51 @@ function stopScheduler() {
     timer = null;
 }
 
+// ---------- live pickup ETA while the captain drives in ----------
+
+const ETA_EVERY_MS = 15000;
+const ETA_EVERY_M = 100;
+const lastEta = new Map(); // rideId → { at, lat, lng }
+const lastReal = new Map(); // rideId → { etaS, distanceM, straightM } from the last real road time
+
+// When the router can't answer mid-approach, the last real road time is
+// scaled by how much closer (in a straight line) the captain has got — far
+// smoother than jumping to a rough straight-line estimate.
+function deadReckon(previous, straightNowM) {
+    const ratio = Math.max(0, Math.min(1.5, straightNowM / Math.max(previous.straightM, 1)));
+    return { durationS: Math.round(previous.etaS * ratio), distanceM: Math.round(previous.distanceM * ratio), estimated: true };
+}
+
+// Recomputes the captain's road time to the pickup (every 15 s or 100 m) and
+// sends the same answer to the rider and the captain. Returns the new
+// approach, or null if it isn't due yet.
+async function refreshApproach(ride, point, { force = false } = {}) {
+    const id = String(ride._id);
+    const last = lastEta.get(id);
+    const due = force || !last || Date.now() - last.at >= ETA_EVERY_MS || distanceInMeters(last.lat, last.lng, point.lat, point.lng) >= ETA_EVERY_M;
+    if (!due || ride.status !== 'accepted' || ride.arrivedAt || !ride.pickupPoint?.lat) return null;
+    lastEta.set(id, { at: Date.now(), lat: point.lat, lng: point.lng });
+    const straightM = distanceInMeters(point.lat, point.lng, ride.pickupPoint.lat, ride.pickupPoint.lng);
+    let [road] = await geo.roadTimes([point], ride.pickupPoint);
+    if (road.estimated && lastReal.has(id)) road = deadReckon(lastReal.get(id), straightM);
+    else if (!road.estimated) lastReal.set(id, { etaS: road.durationS, distanceM: road.distanceM, straightM });
+    const approach = { etaS: road.durationS, distanceM: road.distanceM, estimated: Boolean(road.estimated), at: new Date() };
+    await rideModel.updateOne({ _id: ride._id, status: 'accepted' }, { approach });
+    const payload = { rideId: id, ...approach, minutes: geo.etaMinutes(approach.etaS) };
+    notifier.toRider(ride.user?._id || ride.user, 'captain-eta', payload);
+    notifier.toCaptain(ride.captain?._id || ride.captain, 'captain-eta', payload);
+    return approach;
+}
+const forgetApproach = (rideId) => {
+    lastEta.delete(String(rideId));
+    lastReal.delete(String(rideId));
+};
+
 module.exports = {
     CONFIG,
+    refreshApproach,
+    forgetApproach,
+    deadReckon,
     H3_RES,
     cellOf,
     ringRadiusM,
@@ -305,3 +380,36 @@ module.exports = {
     stopScheduler,
     smoothedRating,
 };
+
+// ---------- nearby vehicles for the rider's map ----------
+
+// Online captains near a point, for the "cars around you" view. Never exact:
+// each captain is shifted by a fixed offset of up to ~60 m that changes daily,
+// and identified only by a daily token, so riders can't track a driver.
+const crypto = require('crypto');
+async function nearbyVehicles(lat, lng, { limit = 12 } = {}) {
+    const cells = h3.gridDisk(cellOf(lat, lng), 2);
+    const found = await captainModel
+        .find({ ...dispatchableFilter(), h3: { $in: cells } })
+        .select('location vehicle.vehicleType')
+        .limit(60);
+    const day = new Date().toISOString().slice(0, 10);
+    return found
+        .map((captain) => {
+            const [cLng, cLat] = captain.location.coordinates;
+            const digest = crypto.createHmac('sha256', process.env.JWT_SECRET || 'swiftride').update(`${captain._id}:${day}`).digest();
+            const offsetM = 20 + (digest[0] / 255) * 40;
+            const angle = (digest[1] / 255) * 2 * Math.PI;
+            return {
+                id: digest.toString('hex').slice(0, 12),
+                type: captain.vehicle?.vehicleType === 'bike' ? 'moto' : captain.vehicle?.vehicleType,
+                lat: cLat + (offsetM * Math.cos(angle)) / 111320,
+                lng: cLng + (offsetM * Math.sin(angle)) / (111320 * Math.cos((cLat * Math.PI) / 180)),
+                meters: distanceInMeters(lat, lng, cLat, cLng),
+            };
+        })
+        .sort((a, b) => a.meters - b.meters)
+        .slice(0, limit)
+        .map(({ meters, ...vehicle }) => vehicle);
+}
+module.exports.nearbyVehicles = nearbyVehicles;

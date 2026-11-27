@@ -100,6 +100,8 @@ const initializeSocket = (httpServer) => {
                     if (ride?.user?.socketId) {
                         io.to(ride.user.socketId).emit('captain-location', { rideId, location: { lat: location.lat, lng: location.lng } });
                     }
+                    // Pickup ETA for both apps (every 15 s / 100 m), in the background.
+                    if (ride) dispatch.refreshApproach(ride, { lat: location.lat, lng: location.lng }).catch((error) => console.error('ETA update failed:', error.message));
                 }
             } catch (error) {
                 console.error('Location update failed:', error.message);

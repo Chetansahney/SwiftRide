@@ -108,3 +108,38 @@ test('a captain going offline stops getting ride offers', async () => {
     const { body } = await bookRide(r.token);
     assert.equal(body.notifiedCaptains, 0);
 });
+
+test('while the captain drives in, rider and captain get the SAME pickup ETA from the server', async () => {
+    const r = await rider();
+    const c = await captain({ at: { lat: 22.5535 + 1500 / 111000, lng: 88.351 } });
+    const { body } = await bookRide(r.token);
+    await api().post('/rides/confirm').set(auth(c.token)).send({ rideId: body.ride._id });
+
+    const riderSocket = open();
+    await new Promise((resolve) => riderSocket.on('connect', resolve));
+    riderSocket.emit('join', { token: r.token, userType: 'user' });
+    const captainSocket = open();
+    await new Promise((resolve) => captainSocket.on('connect', resolve));
+    captainSocket.emit('join', { token: c.token, userType: 'captain' });
+    await wait(300);
+
+    const riderEtas = [];
+    const captainEtas = [];
+    riderSocket.on('captain-eta', (eta) => riderEtas.push(eta));
+    captainSocket.on('captain-eta', (eta) => captainEtas.push(eta));
+    captainSocket.emit('update-location-captain', { rideId: body.ride._id, location: { lat: 22.5535 + 1200 / 111000, lng: 88.351 } });
+    await wait(600);
+    assert.equal(riderEtas.length, 1);
+    assert.deepEqual(riderEtas[0], captainEtas[0], 'identical for both apps');
+    const { etaMinutes, estimatedRoute } = require('../services/geo');
+    const expected = estimatedRoute({ lat: 22.5535 + 1200 / 111000, lng: 88.351 }, { lat: 22.5535, lng: 88.351 }).durationS;
+    assert.equal(riderEtas[0].etaS, expected);
+    assert.equal(riderEtas[0].minutes, etaMinutes(expected));
+
+    // A few metres later, within 15 s: no new calculation (keeps the free router unloaded).
+    await wait(2100);
+    captainSocket.emit('update-location-captain', { rideId: body.ride._id, location: { lat: 22.5535 + 1190 / 111000, lng: 88.351 } });
+    await wait(500);
+    assert.equal(riderEtas.length, 1);
+    [riderSocket, captainSocket].forEach((s) => s.close());
+});

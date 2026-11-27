@@ -68,6 +68,7 @@ module.exports.getNearbyDrivers = async (req, res) => {
 module.exports.confirmRide = async (req, res) => {
     const confirmed = await rideservice.confirmRide(req.body.rideId, req.captain);
     await dispatch.settleAccepted(confirmed, req.captain._id);
+    // ride.approach now holds the ETA from the captain's offer card.
     const ride = publicRide(await findRide(confirmed._id));
     await notifyUser(confirmed.user._id, 'ride-confirmed', ride);
     res.json({ message: 'Ride confirmed successfully', ride });
@@ -76,6 +77,7 @@ module.exports.confirmRide = async (req, res) => {
 // Captain reached the pickup: the rider is told and 3 free minutes of waiting start.
 module.exports.markArrived = async (req, res) => {
     const arrived = await rideservice.markArrived(req.body.rideId, req.captain._id);
+    dispatch.forgetApproach(arrived._id);
     const ride = publicRide(await findRide(arrived._id));
     await notifyUser(arrived.user, 'captain-arrived', ride);
     res.json({ message: 'Arrival recorded', ride });
@@ -151,6 +153,11 @@ module.exports.getActiveRide = async (req, res) => {
 module.exports.getCaptainActiveRide = async (req, res) => {
     const ride = await rideModel.findOne({ captain: req.captain._id, status: { $in: ['accepted', 'ongoing'] } }).populate('user').populate('captain');
     res.json({ ride: ride ? publicRide(ride) : null });
+};
+
+// Vehicles around the rider (approximate positions), refreshed every few seconds.
+module.exports.nearbyVehicles = async (req, res) => {
+    res.json(await dispatch.nearbyVehicles(parseFloat(req.query.lat), parseFloat(req.query.lng)));
 };
 
 // Captain says no to an offer: the next best captains are asked right away.

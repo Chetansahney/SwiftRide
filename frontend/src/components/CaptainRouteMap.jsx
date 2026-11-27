@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react';
+import socket from '../socket';
 import BaseMap, { MapMarker, MapRoute } from './ui/BaseMap';
-import { useGeolocation, useRoute } from '../lib/maps';
+import { etaLabel, useGeolocation, useRoute } from '../lib/maps';
 import { useLanguage } from '../i18n/LanguageContext';
 import { shortPlace } from '../lib/config';
 
@@ -12,7 +14,21 @@ const CaptainRouteMap = ({ ride, mode, showBanner = true }) => {
     // Exact points when the ride has them, else the address text.
     const target = toDrop ? ride?.dropPoint?.lat != null ? ride.dropPoint : ride?.destination : ride?.pickupPoint?.lat != null ? ride.pickupPoint : ride?.origin;
     const routeTarget = toDrop ? ride?.destination : ride?.origin;
-    const route = useRoute(captainLocation, target, 'captain');
+    // To the pickup: fastest (the time the rider sees). To the drop: the route the fare was based on.
+    const route = useRoute(captainLocation, target, 'captain', toDrop ? undefined : 'fastest');
+
+    // To the pickup: the server's ETA (the rider sees exactly the same number).
+    const rideId = ride?._id;
+    const [liveEta, setLiveEta] = useState(null);
+    useEffect(() => {
+        const handle = (payload) => {
+            if (payload?.rideId && payload.rideId === rideId) setLiveEta(payload);
+        };
+        socket.on('captain-eta', handle);
+        return () => socket.off('captain-eta', handle);
+    }, [rideId]);
+    const serverEta = !toDrop ? (liveEta?.rideId === rideId ? liveEta : ride?.approach?.etaS != null ? ride.approach : null) : null;
+    const bannerTime = serverEta ? etaLabel(t, serverEta.etaS, serverEta.estimated) : route?.duration;
 
     return (
         <div className="relative h-full w-full">
@@ -29,7 +45,7 @@ const CaptainRouteMap = ({ ride, mode, showBanner = true }) => {
                         <p className="text-xs text-night-muted">{toDrop ? t('captain.toDrop') : t('captain.toPickup')}</p>
                         <p className="truncate text-base font-semibold">{shortPlace(routeTarget)}</p>
                     </div>
-                    {route?.duration ? <span className="ml-auto shrink-0 font-display text-lg font-semibold">{route.duration}</span> : null}
+                    {bannerTime ? <span className="ml-auto shrink-0 font-display text-lg font-semibold">{bannerTime}</span> : null}
                 </div>
             ) : null}
         </div>

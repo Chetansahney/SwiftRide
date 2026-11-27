@@ -27,7 +27,7 @@ router.get('/get-coordinates', authUser, expensiveLimiter, place('address'), ...
 router.get('/get-distance-time', authUser, expensiveLimiter, place('origin'), place('destination'), ...near, validate, mapController.getDistanceTime);
 router.get('/get-suggestions', authUser, expensiveLimiter, query('input').isString().trim().isLength({ min: 2, max: 120 }).withMessage('Type at least 2 letters'), ...near, validate, mapController.getSuggestions);
 router.get('/nearest-transit', authUser, expensiveLimiter, ...point, validate, mapController.getNearestTransit);
-router.get('/route', anyone, expensiveLimiter, place('origin'), place('destination'), ...near, validate, mapController.getRoute);
+router.get('/route', anyone, expensiveLimiter, place('origin'), place('destination'), ...near, query('prefer').optional().isIn(['fastest', 'shortest']), validate, mapController.getRoute);
 router.get('/reverse', anyone, expensiveLimiter, ...point, validate, mapController.reverseGeocode);
 
 module.exports = router;

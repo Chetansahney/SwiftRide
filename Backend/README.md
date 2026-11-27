@@ -43,12 +43,26 @@ ADMIN_KEY=your_admin_key
 - **How the search spreads:** captains' live locations are indexed in H3 hexagons (resolution 8, about 0.7 km²). A request first searches the ring around the pickup and widens ring by ring: about 0.9, 1.8, 2.8, 3.7 and 5.5 km for bikes and autos, up to about 8.3 km for cabs.
 - **How offers go out:** each wave offers the ride to the best 3 captains at once, live over Socket.IO, with a 15-second accept window. A decline moves to the next captains immediately; an ignored offer times out. Only captains who were offered a ride can accept it. Requests close after 10 minutes with nobody.
 - **Ranking:**
-  - pickup time,
+  - pickup time by road (one OSRM "table" request per wave for the 10 nearest eligible captains, so a captain across a river or a flyover doesn't count as "near"),
   - plus 3 minutes for each star of difference between the captain's and the rider's ratings (smoothed averages), so well-rated riders get well-rated captains,
   - plus penalties for low acceptance and dropped rides,
   - minus a small boost for captains who've waited longest.
 - **Women's safety rules are hard filters:** women-only requests go only to confirmed women captains. If none is found for 90 seconds, the rider can open the ride to any verified captain. A confirmed woman captain on "women riders only" never gets other riders.
 - **Background scheduler:** it runs due waves every 2 seconds and picks up open requests after a restart.
+
+## Pickup ETA ("Ravi is 6 mins away")
+
+- **One number, computed on the server:** the captain's offer card, the rider's chip and the captain's own banner all show the same ETA.
+  - **At offer time:** the dispatcher gets each captain's road time to the pickup.
+  - **On accept:** that exact ETA becomes the rider's first "X min away".
+  - **While the captain drives in:** the server recalculates every 15 s or 100 m and pushes the same answer (`captain-eta`) to both apps.
+- **The calculation:** OSRM's fastest road time × `ROUTE_TRAFFIC_FACTOR` (default 1.6), rounded to the nearest minute and never shown below 1 min. The rider sees "almost here" under 60 s, then "has arrived" once the captain taps arrived.
+- **Pickup snapping:** a pickup is matched to up to 3 road points within 60 m (for example a flyover deck and the street below it), and the quickest one to reach is used. Without this, a pickup beside the Park Street flyover sent a captain 115 m away on a 2.5 km detour.
+- **When the free router is slow or says "429 Too Many Requests":**
+  - **Back-off:** the server leaves it alone for 30 s after a 429, or 10 s after a timeout.
+  - **Smooth fallback:** during an approach, it scales the last real road time by how much closer the captain has come.
+  - **Estimates are marked:** any estimated ETA is shown with "~".
+  - **Caching:** road times are cached for 30 s.
 
 ## Security
 

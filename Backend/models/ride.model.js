@@ -127,9 +127,19 @@ const rideSchema=new mongoose.Schema({
         expiresAt: Date,
         status: { type: String, enum: ['offered', 'declined', 'expired', 'withdrawn', 'accepted'] },
         etaMin: Number,
+        etaS: Number,
+        estimated: Boolean,
         distanceM: Number,
         score: Number,
     }],
+    // The captain's road time to the pickup, computed only on the server and
+    // pushed to both apps, so the rider and the captain always see one number.
+    approach: {
+        etaS: Number,
+        distanceM: Number,
+        estimated: Boolean,
+        at: Date,
+    },
     dispatch: {
         ringIndex: { type: Number, default: 0 },
         wave: { type: Number, default: 0 },

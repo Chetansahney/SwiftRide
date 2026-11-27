@@ -1,6 +1,11 @@
 // UI strings in English, Hindi and Bengali.
 // Hindi and Bengali are first drafts — have a native speaker review them before launch.
 const en = {
+    "time.minute": "{n} min",
+    "time.minutes": "{n} mins",
+    "ride.arrivingNow": "{name} is almost here",
+    "ride.arrivedChip": "{name} has arrived",
+    "ride.arrivingIn": "{name} is {time} away",
     "ride.searchingOne": "Asking 1 captain within {km} km",
     "captain.decline": "Decline",
     "captain.offerExpired": "That ride offer expired.",
@@ -394,6 +399,11 @@ const en = {
 };
 
 const hi = {
+    "time.minute": "{n} मिनट",
+    "time.minutes": "{n} मिनट",
+    "ride.arrivingNow": "{name} एक मिनट से कम दूर हैं",
+    "ride.arrivedChip": "{name} पिकअप पर हैं",
+    "ride.arrivingIn": "{name} {time} दूर हैं",
     "ride.searchingOne": "{km} किमी के अंदर 1 कैप्टन से पूछ रहे हैं",
     "captain.decline": "मना करें",
     "captain.offerExpired": "राइड का ऑफ़र समाप्त हो गया।",
@@ -787,6 +797,11 @@ const hi = {
 };
 
 const bn = {
+    "time.minute": "{n} মিনিট",
+    "time.minutes": "{n} মিনিট",
+    "ride.arrivingNow": "{name} এক মিনিটের কম দূরে আছেন",
+    "ride.arrivedChip": "{name} পিকআপে পৌঁছে গেছেন",
+    "ride.arrivingIn": "{name} {time} দূরে আছেন",
     "ride.searchingOne": "{km} কিমির মধ্যে 1 জন ক্যাপ্টেনকে জিজ্ঞেস করছি",
     "captain.decline": "না করুন",
     "captain.offerExpired": "রাইডের অফারের সময় শেষ।",

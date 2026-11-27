@@ -16,7 +16,10 @@ module.exports.getDistanceTime = async (req, res) => {
 };
 
 module.exports.getRoute = async (req, res) => {
-    res.json(await mapservice.getRoute(req.query.origin, req.query.destination, nearFrom(req.query)));
+    // "fastest" for a captain heading to a pickup (that is the ETA riders see);
+    // the default is the shortest sensible route (the rider's trip and fare).
+    const prefer = req.query.prefer === 'fastest' ? 'fastest' : 'shortest';
+    res.json(await mapservice.getRoute(req.query.origin, req.query.destination, nearFrom(req.query), prefer));
 };
 
 module.exports.getSuggestions = async (req, res) => {

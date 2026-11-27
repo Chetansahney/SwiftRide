@@ -4,7 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 // MapLibre draws on a background worker; point it at the bundled file so it
 // loads the same way in development and in production builds.
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
-import { DEFAULT_CENTER, MAP_STYLES, MARKERS } from '../../lib/maps';
+import { DEFAULT_CENTER, MAP_STYLES, MARKERS, VEHICLE_ICONS } from '../../lib/maps';
 
 maplibregl.setWorkerUrl(workerUrl);
 
@@ -24,7 +24,9 @@ function MapLoading({ theme = 'day' }) {
 
 // Free map (MapLibre + OpenFreeMap tiles). Children are <MapMarker> and
 // <MapRoute>. The view follows `center`, unless a route is being shown.
-export default function BaseMap({ theme = 'day', center, zoom = 15, children }) {
+// `bottomInset` (pixels or a function) is how much of the map a bottom sheet
+// covers, so following the centre keeps it in the visible part.
+export default function BaseMap({ theme = 'day', center, zoom = 15, bottomInset = 0, children }) {
     const containerRef = useRef(null);
     const [map, setMap] = useState(null);
     const [failed, setFailed] = useState(false);
@@ -63,7 +65,16 @@ export default function BaseMap({ theme = 'day', center, zoom = 15, children }) 
     const lng = center?.lng;
     useEffect(() => {
         if (!map || lat == null || lng == null || followingRouteRef.current) return;
-        map.easeTo({ center: [lng, lat], duration: 600 });
+        const inset = typeof bottomInset === 'function' ? bottomInset() : bottomInset;
+        // A one-off offset (not "padding", which MapLibre keeps and would add to
+        // later route framing) moves the centre into the part above the sheet.
+        const shift = Math.max(0, Math.min(map.getContainer().clientHeight - 160, inset || 0)) / 2;
+        try {
+            map.easeTo({ center: [lng, lat], offset: [0, -shift], duration: 600 });
+        } catch {
+            map.setCenter([lng, lat]);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [map, lat, lng]);
 
     return (
@@ -119,7 +130,11 @@ let routeCount = 0;
 
 // A thick route line ([lng, lat] pairs). The first time it appears, the map
 // zooms to fit it; after that the rider/captain can pan freely.
-export function MapRoute({ coordinates, theme = 'day' }) {
+// `bottomInset` (pixels, or a function returning pixels) keeps the route clear
+// of a bottom sheet covering part of the map.
+// `refit` re-frames the map every time the route changes (e.g. a driver
+// approaching: the view zooms in as they get closer, like Uber).
+export function MapRoute({ coordinates, theme = 'day', bottomInset = 80, refit = false }) {
     const { map, followingRouteRef } = useContext(MapContext) || {};
     const [id] = useState(() => `route-${(routeCount += 1)}`);
     const fittedRef = useRef(false);
@@ -155,13 +170,102 @@ export function MapRoute({ coordinates, theme = 'day' }) {
         if (!source) return;
         const line = Array.isArray(coordinates) && coordinates.length > 1 ? coordinates : null;
         source.setData(line ? { type: 'Feature', geometry: { type: 'LineString', coordinates: line } } : { type: 'FeatureCollection', features: [] });
-        if (line && !fittedRef.current) {
+        if (line && (refit || !fittedRef.current)) {
             fittedRef.current = true;
             followingRouteRef.current = true;
             const bounds = line.reduce((box, point) => box.extend(point), new maplibregl.LngLatBounds(line[0], line[0]));
-            map.fitBounds(bounds, { padding: { top: 120, bottom: 80, left: 48, right: 48 }, maxZoom: 16, duration: 700 });
+            // Clear of the header (~85 px) and whatever covers the bottom, always
+            // leaving at least 110 px of map for the route.
+            const height = map.getContainer().clientHeight;
+            const top = Math.min(90, Math.round(height * 0.14));
+            const wanted = typeof bottomInset === 'function' ? bottomInset() : bottomInset;
+            const bottom = Math.max(40, Math.min(height - top - 110, wanted));
+            // Framing the view must never break the app (e.g. a tiny or hidden map).
+            try {
+                map.setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
+                map.fitBounds(bounds, { padding: { top, bottom, left: 40, right: 40 }, maxZoom: 16, duration: 700 });
+            } catch (error) {
+                console.warn('[map] could not frame route', { height, width: map.getContainer().clientWidth, top, bottom, error: error.message });
+            }
         }
-    }, [map, id, coordinates, followingRouteRef]);
+    }, [map, id, coordinates, followingRouteRef, bottomInset, refit]);
+
+    return null;
+}
+
+const toRad = (deg) => (deg * Math.PI) / 180;
+// Compass bearing from a to b, in degrees (0 = north).
+function bearing(a, b) {
+    const y = Math.sin(toRad(b.lng - a.lng)) * Math.cos(toRad(b.lat));
+    const x = Math.cos(toRad(a.lat)) * Math.sin(toRad(b.lat)) - Math.sin(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.cos(toRad(b.lng - a.lng));
+    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+function metresBetween(a, b) {
+    const dLat = toRad(b.lat - a.lat);
+    const dLng = toRad(b.lng - a.lng);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+    return 2 * 6371000 * Math.asin(Math.sqrt(h));
+}
+// Shortest way round from one heading to another (so 350° → 10° turns 20°, not 340°).
+const turnTowards = (from, to, t) => from + ((((to - from) % 360) + 540) % 360 - 180) * t;
+
+// A vehicle that glides between GPS updates and turns to face where it's going,
+// like Uber. Big jumps (> 2 km, e.g. first fix) are applied instantly.
+export function MapVehicle({ position, type = 'car', duration = 2500, title }) {
+    const { map } = useContext(MapContext) || {};
+    const markerRef = useRef(null);
+    const shownRef = useRef(null); // { lat, lng, heading } currently drawn
+    const frameRef = useRef(0);
+    const lat = position?.lat;
+    const lng = position?.lng;
+
+    useEffect(() => {
+        if (!map) return undefined;
+        const art = VEHICLE_ICONS[type] || VEHICLE_ICONS.car;
+        const element = document.createElement('img');
+        element.src = art.url;
+        element.width = art.size[0];
+        element.height = art.size[1];
+        element.alt = title || '';
+        element.draggable = false;
+        markerRef.current = new maplibregl.Marker({ element, anchor: 'center', rotationAlignment: 'map', pitchAlignment: 'map' });
+        return () => {
+            cancelAnimationFrame(frameRef.current);
+            markerRef.current?.remove();
+            markerRef.current = null;
+            shownRef.current = null;
+        };
+    }, [map, type, title]);
+
+    useEffect(() => {
+        const marker = markerRef.current;
+        if (!map || !marker || lat == null || lng == null) return undefined;
+        const target = { lat, lng };
+        const from = shownRef.current;
+        cancelAnimationFrame(frameRef.current);
+
+        if (!from || metresBetween(from, target) > 2000) {
+            shownRef.current = { ...target, heading: from?.heading || 0 };
+            marker.setLngLat([lng, lat]).setRotation(shownRef.current.heading).addTo(map);
+            return undefined;
+        }
+        // Barely moved (GPS jitter): don't spin the vehicle around.
+        const targetHeading = metresBetween(from, target) > 4 ? bearing(from, target) : from.heading;
+        const started = performance.now();
+        const step = (now) => {
+            const t = Math.min(1, (now - started) / duration);
+            const current = {
+                lat: from.lat + (target.lat - from.lat) * t,
+                lng: from.lng + (target.lng - from.lng) * t,
+                heading: turnTowards(from.heading, targetHeading, Math.min(1, t * 3)),
+            };
+            shownRef.current = current;
+            marker.setLngLat([current.lng, current.lat]).setRotation(current.heading);
+            if (t < 1) frameRef.current = requestAnimationFrame(step);
+        };
+        frameRef.current = requestAnimationFrame(step);
+        return () => cancelAnimationFrame(frameRef.current);
+    }, [map, lat, lng, duration]);
 
     return null;
 }

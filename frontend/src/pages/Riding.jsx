@@ -116,7 +116,7 @@ const Riding = () => {
     return (
         <div className="relative flex h-full flex-col overflow-hidden bg-[#EEF0F2]">
             <div className="relative h-[38%] min-h-[220px] w-full shrink-0">
-                <UserRouteMap destination={ride?.destination} />
+                <UserRouteMap destination={ride?.destination} dropPoint={ride?.dropPoint} rideId={ride?._id} vehicleType={ride?.vehicleType} />
                 <div className="absolute inset-x-5 top-6 z-20 flex justify-between">
                     <button
                         type="button"

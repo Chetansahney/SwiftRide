@@ -173,3 +173,77 @@ test('dispatch details are never sent to apps', async () => {
     assert.equal(offer.data.user.name.firstname, 'Asha', 'captain sees the rider first name only');
     assert.equal(offer.data.user.email, undefined);
 });
+
+// ---- one road-based ETA everywhere ----
+
+test('ranking uses road time: a captain across the river loses to one further away in a straight line', async () => {
+    const geo = require('../services/geo');
+    const { realisticRoadTimes } = require('./helpers');
+    const acrossRiver = await captain({ at: near(250) });
+    const sameSide = await captain({ at: near(700) });
+    // Simulated roads: the 250 m captain needs a 15-minute detour over a bridge.
+    geo.roadTimes = async (sources, destination) =>
+        sources.map((p) =>
+            Math.abs(p.lat - near(250).lat) < 1e-6 ? { durationS: 900, distanceM: 6200, estimated: false } : { durationS: 170, distanceM: 950, estimated: false }
+        );
+    try {
+        const r = await rider();
+        const { body } = await bookRide(r.token);
+        const ride = await Ride().findById(body.ride._id);
+        const order = [...ride.offers].sort((a, b) => a.score - b.score).map((o) => String(o.captain));
+        assert.deepEqual(order, [sameSide.id, acrossRiver.id]);
+        // The offer card shows the road time and road distance.
+        const offer = events.find((e) => e.event === 'new-ride' && e.to === sameSide.id).data.offer;
+        assert.equal(offer.etaMin, 3, '170 s rounds to 3 min, exactly like the rider\'s chip');
+        assert.equal(offer.distanceM, 950);
+    } finally {
+        geo.roadTimes = realisticRoadTimes;
+    }
+});
+
+test('the offer card and the rider\'s "X min away" use the same rounding', () => {
+    const geo = require('../services/geo');
+    const { formatDuration } = require('../services/maps.services');
+    for (const seconds of [10, 59, 89, 90, 149, 150, 1745]) {
+        assert.equal(formatDuration(seconds), `${geo.etaMinutes(seconds)} min${geo.etaMinutes(seconds) === 1 ? '' : 's'}`);
+    }
+});
+
+test('the ETA on the captain\'s offer card becomes the rider\'s first "X min away"', async () => {
+    const c = await captain({ at: near(600) });
+    const r = await rider();
+    const { body } = await bookRide(r.token);
+    const offer = events.find((e) => e.event === 'new-ride' && e.to === c.id).data.offer;
+    assert.ok(offer.etaS > 0 && offer.estimated === true, 'offline tests use the estimate, and say so');
+    const accepted = await post('/rides/confirm', c.token, { rideId: body.ride._id });
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.ride.approach.etaS, offer.etaS, 'same seconds the captain saw');
+    const seen = await api().get(`/rides/${body.ride._id}`).set(auth(r.token));
+    assert.equal(seen.body.approach.etaS, offer.etaS, 'the rider gets the same ETA');
+});
+
+test('if the router stops answering mid-approach, the ETA shrinks smoothly from the last real one', async () => {
+    const geo = require('../services/geo');
+    const { realisticRoadTimes } = require('./helpers');
+    const c = await captain({ at: near(2000) });
+    const r = await rider();
+    const { body } = await bookRide(r.token);
+    await post('/rides/confirm', c.token, { rideId: body.ride._id });
+    const ride = await Ride().findById(body.ride._id).populate('user', 'socketId');
+    try {
+        // A real road answer first: 600 s at 2 km straight-line.
+        geo.roadTimes = async () => [{ durationS: 600, distanceM: 2700, estimated: false }];
+        await dispatch.refreshApproach(ride, near(2000), { force: true });
+        // Then the router is down; the captain is now 1 km away in a straight line.
+        geo.roadTimes = realisticRoadTimes;
+        events.length = 0;
+        await dispatch.refreshApproach(ride, near(1000), { force: true });
+        const eta = events.find((e) => e.event === 'captain-eta').data;
+        assert.equal(eta.estimated, true);
+        assert.ok(Math.abs(eta.etaS - 300) <= 5, `half the distance → about half of 600 s, got ${eta.etaS}`);
+        assert.equal(eta.minutes, 5);
+    } finally {
+        geo.roadTimes = realisticRoadTimes;
+        dispatch.forgetApproach(body.ride._id);
+    }
+});
