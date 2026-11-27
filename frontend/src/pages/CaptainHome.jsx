@@ -9,7 +9,7 @@ import CaptainRouteMap from '../components/CaptainRouteMap';
 import { LanguageToggle, Logo } from '../components/ui/Brand';
 import { CaptainDataContext } from '../context/CaptainContext';
 import { useLanguage } from '../i18n/LanguageContext';
-import socket from '../socket';
+import socket, { joinAs } from '../socket';
 
 function DarkSheet({ open, children }) {
     return (
@@ -51,10 +51,8 @@ const CaptainHome = () => {
     // Join the socket room and share live location every second.
     useEffect(() => {
         if (!captain?._id) return undefined;
-        // The server identifies us by the login token; re-join after every reconnect.
-        const join = () => socket.emit('join', { token: localStorage.getItem('captainToken'), userType: 'captain' });
-        join();
-        socket.on('connect', join);
+        // The live connection says who we are now and again after every reconnect.
+        joinAs('captain');
 
         const locationInterval = setInterval(() => {
             if (!navigator.geolocation) return;
@@ -77,10 +75,7 @@ const CaptainHome = () => {
             );
         }, 1000);
 
-        return () => {
-            clearInterval(locationInterval);
-            socket.off('connect', join);
-        };
+        return () => clearInterval(locationInterval);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [captain]);
 

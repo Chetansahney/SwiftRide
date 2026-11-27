@@ -20,7 +20,7 @@ import { FEATURES, isLateEvening, shortPlace } from '../lib/config';
 import { nearParams, reverseGeocode, useLocation } from '../lib/maps';
 import { addRecentPlace, getRecentPlaces, getSavedPlaces, savePlace } from '../lib/places';
 import useSpeechInput from '../lib/useSpeechInput';
-import socket from '../socket';
+import socket, { joinAs } from '../socket';
 
 const API = import.meta.env.VITE_BASE_URL;
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('userToken')}` });
@@ -350,13 +350,9 @@ const Home = () => {
         loadProfile();
     }, [user, setUser]);
 
+    // Tell the live connection who we are (it says so again after every reconnect).
     useEffect(() => {
-        if (!user?._id) return undefined;
-        // The server identifies us by the login token; re-join after every reconnect.
-        const join = () => socket.emit('join', { token: localStorage.getItem('userToken'), userType: 'user' });
-        join();
-        socket.on('connect', join);
-        return () => socket.off('connect', join);
+        if (user?._id) joinAs('user');
     }, [user?._id]);
 
     useEffect(() => {

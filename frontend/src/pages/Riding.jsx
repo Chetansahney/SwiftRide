@@ -19,7 +19,7 @@ import { formatFare, vehicleMeta } from '../lib/config';
 import { useLocation } from '../lib/maps';
 import { API, riderAuth, riderPost } from '../lib/api';
 import useSafetyMonitor from '../lib/useSafetyMonitor';
-import socket from '../socket';
+import socket, { joinAs } from '../socket';
 
 const TIP_OPTIONS = [0, 10, 20, 30];
 
@@ -58,6 +58,12 @@ const Riding = () => {
 
     const ended = ride?.status === 'completed';
     const monitor = useSafetyMonitor({ active: Boolean(ride?._id) && !ended, position, dropPoint: ride?.dropPoint });
+
+    // Needed here too: after a reload or a reconnect on this page, the server
+    // must know where to send the captain's location and "ride ended".
+    useEffect(() => {
+        joinAs('user');
+    }, []);
 
     // The captain ending the trip brings up "Did you reach safely?", then payment.
     useEffect(() => {

@@ -5,7 +5,7 @@ import FinishRide from '../components/FinishRIde';
 import CaptainRouteMap from '../components/CaptainRouteMap';
 import SosSheet from '../components/safety/SosSheet';
 import { CaptainDataContext } from '../context/CaptainContext';
-import socket from '../socket';
+import socket, { joinAs } from '../socket';
 import { useLanguage } from '../i18n/LanguageContext';
 import { formatFare, shortPlace } from '../lib/config';
 import useKeepAwake from '../lib/useKeepAwake';
@@ -27,12 +27,9 @@ const CaptainRiding = () => {
     // The rider and their trusted contacts follow this phone's location.
     useKeepAwake(Boolean(ride?._id));
 
-    // Identify this socket with the login token (again after any reconnect).
+    // Identify this phone to the live connection (it repeats this after any reconnect).
     useEffect(() => {
-        const join = () => socket.emit('join', { token: localStorage.getItem('captainToken'), userType: 'captain' });
-        join();
-        socket.on('connect', join);
-        return () => socket.off('connect', join);
+        joinAs('captain');
     }, []);
 
     // Keep sending live location during the trip: it feeds the rider's map and
