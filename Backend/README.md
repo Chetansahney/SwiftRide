@@ -42,10 +42,17 @@ ADMIN_KEY=your_admin_key
 
 ## Captain verification
 
-- **Once, after sign-up** (`POST /captains/verification`): licence number, date of birth, licence photo and three live selfies (straight, head left, head right). The licence and vehicle are checked through the verification provider (test-only for now; owner name is not checked). `services/faceEngine.js` then matches the selfie against the licence photo on the server, with no cloud service: a face fingerprint decides, 51 stable face "dots" aligned in 3D act as a red flag, and the head-turn photos are the liveness check. The result is `verified`, `in_review` (a person checks it at `/admin/review`) or `rejected` with reasons.
-- **Every shift window** (`POST /captains/shift-selfie`): 6 AM–2 PM, 2 PM–10 PM, 10 PM–6 AM India time (`utils/shiftWindow.js`). Captains only get ride requests when verified and their selfie for the current window matched.
+- **Once, after sign-up** (`POST /captains/verification`): licence number, date of birth, a licence photo, and live photos following a random challenge from `POST /captains/liveness-challenge` (straight, then two of turn left / turn right / look up / smile; single use, expires in 5 minutes). The licence and vehicle go through the verification provider (test-only for now; owner name isn't checked). The face engine (`services/faceEngine.js`, all MIT-licensed models running inside the server) then:
+  - **decides with a ResNet face fingerprint** (face-api). On calibration photos the same person scored at most 0.556 apart and different people at least 0.574; at or below 0.50 is a match, 0.50–0.60 goes to review, above 0.60 is rejected;
+  - **takes a second opinion** from Human's own fingerprint, and sends a match to review if it strongly disagrees;
+  - **uses 48 stable face "dots" aligned in 3D as a red flag only**, because on their own they can't tell people apart;
+  - **asks for a retake instead of guessing** when a photo is too unclear to fingerprint;
+  - **checks liveness** from the mesh geometry: the right action, in the right order, by the same person, with no repeated photos, plus an anti-spoof score.
+
+  The result is `verified`, `in_review` (a person checks it at `/admin/review`) or `rejected` with reasons.
+- **Every shift window** (`POST /captains/shift-selfie`): 6 AM–2 PM, 2 PM–10 PM, 10 PM–6 AM India time (`utils/shiftWindow.js`). The captain takes 2 live photos: straight, then one random action. They're matched against a gallery of the captain's last 5 verified selfies, so beards, glasses and ageing are handled, while staying close to the original verified face and the licence, so the gallery can't drift to someone else. Captains only get ride requests when verified and this window's check has matched.
 - **Privacy:** the licence number is stored only as a keyed hash plus its last 4 digits. Photos are kept only until a reviewer decides. Face fingerprints are never sent to clients.
-- **Thresholds** in `faceEngine.js` were calibrated on low-quality web photos. Re-tune them on real licence and selfie pairs before launch.
+- **Thresholds** live in `config/faceThresholds.json`. Before launch, collect real licence and selfie pairs (with consent) in `calibration-data/<person>/`, which is git-ignored. Then run `npm run face:calibrate -- calibration-data --write`. It reports how well the engine separates people and rewrites the thresholds. It won't raise the auto-approve line above 0.50 until it has at least 20,000 different-person pairs.
 
 ## Data Models
 

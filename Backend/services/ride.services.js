@@ -6,6 +6,7 @@ const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const { HttpError } = require("../utils/httpError");
 const { currentShiftWindow } = require("../utils/shiftWindow");
+const { isConfirmedWoman } = require("../utils/womenSafety");
 
 async function getOTP(num = 4) {
     const length = Number.isInteger(num) && num > 0 ? num : 4;
@@ -196,8 +197,12 @@ module.exports.createRide = async ({ user, origin, destination, vehicleType, pre
 // Captains who may be offered (and accept) this ride.
 function canTake(captain, ride) {
     if (normalizeType(captain.vehicle?.vehicleType) !== ride.vehicleType) return false;
-    if (ride.preferWomenCaptain && captain.gender !== 'female') return false;
-    if (captain.womenRidersOnly && !ride.riderIsWoman) return false;
+    // Only CONFIRMED women captains count as women captains, and only they can
+    // limit themselves to women riders (otherwise anyone could pick "female"
+    // and get matched only with women).
+    const confirmedWoman = isConfirmedWoman(captain);
+    if (ride.preferWomenCaptain && !confirmedWoman) return false;
+    if (captain.womenRidersOnly && confirmedWoman && !ride.riderIsWoman) return false;
     if ((ride.declinedBy || []).some((id) => String(id) === String(captain._id))) return false;
     return true;
 }

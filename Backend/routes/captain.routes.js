@@ -35,6 +35,7 @@ router.delete('/profile', authCaptain, captainController.deleteAccount);
 
 // Identity check (licence + vehicle + face) and the face check for each shift window.
 router.get('/verification', authCaptain, verificationController.getVerification);
+router.post('/liveness-challenge', authCaptain, body('purpose').optional().isIn(['verification', 'shift']), validate, verificationController.createChallenge);
 router.post('/verification', faceLimiter, authCaptain, verificationController.submitVerification);
 router.post('/shift-selfie', faceLimiter, authCaptain, verificationController.uploadShiftSelfie);
 

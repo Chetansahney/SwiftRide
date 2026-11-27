@@ -2,6 +2,7 @@ const captainModel = require('../models/captain.models');
 const rideModel = require('../models/ride.model');
 const accounts = require('../services/account.services');
 const { normalise } = require('../services/verificationProvider');
+const { isConfirmedWoman } = require('../utils/womenSafety');
 
 const ACTIVE = ['accepted', 'ongoing'];
 
@@ -73,14 +74,25 @@ module.exports.deleteAccount = async (req, res) => {
     res.status(200).json({ message: 'Account deleted' });
 };
 
-// Gender (optional) and, for women captains, "women riders only".
+// Gender (before verification only) and, for confirmed women captains, "women riders only".
 module.exports.updateSettings = async (req, res) => {
+    const current = req.captain;
     const updates = {};
-    if (req.body.gender !== undefined) updates.gender = req.body.gender || undefined;
-    const gender = updates.gender !== undefined ? updates.gender : req.captain.gender;
-    if (req.body.womenRidersOnly !== undefined) {
-        updates.womenRidersOnly = gender === 'female' && Boolean(req.body.womenRidersOnly);
-    } else if (gender !== 'female') {
+    if (req.body.gender !== undefined && (req.body.gender || undefined) !== current.gender) {
+        // Gender is part of the identity check; after it, only the team can change it,
+        // so nobody can switch to "female" later to get women-only rides.
+        if (!['not_started', 'rejected', undefined].includes(current.verification?.status)) {
+            return res.status(403).json({ message: 'Your gender was confirmed during verification. Contact support to change it.', reason: 'gender_locked' });
+        }
+        updates.gender = req.body.gender || undefined;
+        updates.genderCheck = { status: 'not_needed' };
+    }
+    if (req.body.womenRidersOnly === true || req.body.womenRidersOnly === 'true') {
+        if (!isConfirmedWoman(current) || updates.gender) {
+            return res.status(403).json({ message: 'Women riders only is available once you are confirmed as a woman captain.', reason: 'not_confirmed' });
+        }
+        updates.womenRidersOnly = true;
+    } else if (req.body.womenRidersOnly !== undefined || updates.gender) {
         updates.womenRidersOnly = false;
     }
     const captain = await captainModel.findByIdAndUpdate(req.captain._id, { $set: updates }, { new: true, runValidators: true });

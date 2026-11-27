@@ -24,8 +24,8 @@ app.use(securityHeaders);
 app.use(corsPolicy);
 app.use(apiLimiter);
 
-// Identity verification sends a licence photo and three selfies.
-app.use('/captains/verification', express.json({ limit: '4mb' }));
+// Identity verification sends a licence photo and three selfies; shift checks two.
+app.use(['/captains/verification', '/captains/shift-selfie'], express.json({ limit: '4mb' }));
 // 1 MB so captains can upload a compressed shift selfie.
 app.use(express.json({ limit: '1mb' }));
 app.use(rejectOperatorInjection);

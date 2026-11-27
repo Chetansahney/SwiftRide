@@ -70,7 +70,7 @@ test('captains must be verified with a face check for this shift to accept', asy
 test('women-only preferences are enforced at accept time too', async () => {
     const r = await rider();
     const man = await captain({ gender: 'male' });
-    const woman = await captain({ gender: 'female' });
+    const woman = await captain({ gender: 'female', confirmedWoman: true });
     const { body } = await bookRide(r.token, { preferWomenCaptain: true });
     assert.equal(body.notifiedCaptains, 1);
     assert.equal((await post('/rides/confirm', man.token, { rideId: body.ride._id })).status, 403);
@@ -246,4 +246,57 @@ test('every third drop is a strike for the captain', async () => {
     const cap = await mongoose.model('Captain').findById(c.id);
     assert.equal(cap.cancellations, 3);
     assert.equal(cap.strikes, 1);
+});
+
+// ---- women-only features need a CONFIRMED woman captain ----
+
+test('a captain who only declared "female" is not matched as a woman captain', async () => {
+    const r = await rider();
+    const claimed = await captain({ gender: 'female' }); // declared, not confirmed
+    const { body } = await bookRide(r.token, { preferWomenCaptain: true });
+    assert.equal(body.notifiedCaptains, 0);
+    assert.equal((await post('/rides/confirm', claimed.token, { rideId: body.ride._id })).status, 403);
+    const nearby = await api().get('/rides/nearby').query({ origin: 'Park Street, Kolkata' }).set(auth(r.token));
+    assert.equal(nearby.body.women.auto, null, 'not shown as a nearby woman captain');
+});
+
+test('"women riders only" can only be switched on by a confirmed woman captain', async () => {
+    const claimed = await captain({ gender: 'female' });
+    const res = await api().patch('/captains/settings').set(auth(claimed.token)).send({ womenRidersOnly: true });
+    assert.equal(res.status, 403);
+    assert.equal(res.body.reason, 'not_confirmed');
+    const confirmed = await captain({ confirmedWoman: true });
+    assert.equal((await api().patch('/captains/settings').set(auth(confirmed.token)).send({ womenRidersOnly: true })).status, 200);
+});
+
+test('a stale "women riders only" flag on an unconfirmed captain is ignored, so it can\'t target women', async () => {
+    const c = await captain({ gender: 'female' });
+    await mongoose.model('Captain').updateOne({ _id: c.id }, { womenRidersOnly: true });
+    const man = await rider();
+    const { body } = await bookRide(man.token);
+    assert.equal(body.notifiedCaptains, 1, 'still offered rides from men');
+});
+
+test('gender is locked after verification, so nobody can switch to "female" later', async () => {
+    const c = await captain({ gender: 'male' });
+    const res = await api().patch('/captains/settings').set(auth(c.token)).send({ gender: 'female' });
+    assert.equal(res.status, 403);
+    assert.equal(res.body.reason, 'gender_locked');
+    const fresh = await captain({ verified: false });
+    assert.equal((await api().patch('/captains/settings').set(auth(fresh.token)).send({ gender: 'female' })).status, 200, 'fine before verification');
+});
+
+test('a person on the team can confirm a woman captain the model was unsure about', async () => {
+    const c = await captain({ gender: 'female' });
+    await mongoose.model('Captain').updateOne({ _id: c.id }, { genderCheck: { status: 'in_review', estimate: 'uncertain', pFemale: 0.6, image: 'data:image/jpeg;base64,AAAA' } });
+    const queue = await api().get('/admin/verifications').set('x-admin-key', 'test-admin-key');
+    assert.equal(queue.body.gender.length, 1);
+    const decided = await api().post(`/admin/verifications/${c.id}`).set('x-admin-key', 'test-admin-key').send({ kind: 'gender', decision: 'approve' });
+    assert.equal(decided.status, 200);
+    const after = await mongoose.model('Captain').findById(c.id).select('+genderCheck.image');
+    assert.equal(after.genderCheck.status, 'verified');
+    assert.equal(after.genderCheck.image, undefined, 'photo deleted after the decision');
+    const r = await rider();
+    const { body } = await bookRide(r.token, { preferWomenCaptain: true });
+    assert.equal(body.notifiedCaptains, 1);
 });

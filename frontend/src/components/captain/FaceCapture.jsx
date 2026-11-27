@@ -2,14 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { Camera, RotateCcw, Upload } from 'lucide-react';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { captureVideo, compressFile } from '../../lib/images';
+import { STEP_PROMPTS } from '../../lib/faceSteps';
 
-const PROMPTS = ['verify.lookStraight', 'verify.turnLeft', 'verify.turnRight'];
 const COUNTDOWN = 3;
 
-// Three photos — straight, head turned left, head turned right — so a printed
-// photo or a phone screen held up to the camera can't pass. Captures itself
-// after a short countdown for each prompt; falls back to uploading selfies.
-export default function FaceCapture({ onDone }) {
+// One photo per step the server picked (e.g. straight → turn left → smile), so
+// a printed photo, a screen or a recorded video can't pass. Captures itself
+// after a short countdown; falls back to uploading photos if the camera is
+// blocked. Calls onDone(frames, capture) with capture = "camera" | "upload".
+export default function FaceCapture({ steps = ['straight', 'left', 'right'], onDone, dark = false, autoStart = false }) {
     const { t } = useLanguage();
     const videoRef = useRef(null);
     const streamRef = useRef(null);
@@ -17,6 +18,10 @@ export default function FaceCapture({ onDone }) {
     const [mode, setMode] = useState('intro'); // intro | camera | upload | review
     const [frames, setFrames] = useState([]);
     const [count, setCount] = useState(COUNTDOWN);
+    // Gallery uploads may be mirrored, so the server checks them a little differently.
+    const [source, setSource] = useState('camera');
+    const muted = dark ? 'text-night-muted' : 'text-muted';
+    const card = dark ? 'bg-night-card' : 'bg-white ring-1 ring-line';
 
     const stop = () => {
         streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -30,11 +35,18 @@ export default function FaceCapture({ onDone }) {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 960 } }, audio: false });
             streamRef.current = stream;
+            setSource('camera');
             setMode('camera');
         } catch {
+            setSource('upload');
             setMode('upload');
         }
     };
+
+    useEffect(() => {
+        if (autoStart) start();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // Attach the stream once the <video> is on screen.
     useEffect(() => {
@@ -60,13 +72,13 @@ export default function FaceCapture({ onDone }) {
             const next = [...frames, captureVideo(video)];
             setFrames(next);
             setCount(COUNTDOWN);
-            if (next.length === PROMPTS.length) {
+            if (next.length === steps.length) {
                 stop();
                 setMode('review');
             }
         }, 1000);
         return () => clearTimeout(timer);
-    }, [mode, count, frames]);
+    }, [mode, count, frames, steps.length]);
 
     const handleUpload = async (event) => {
         const file = event.target.files?.[0];
@@ -74,24 +86,24 @@ export default function FaceCapture({ onDone }) {
         if (!file) return;
         const next = [...frames, await compressFile(file)];
         setFrames(next);
-        if (next.length === PROMPTS.length) setMode('review');
+        if (next.length === steps.length) setMode('review');
     };
 
-    const step = Math.min(frames.length, PROMPTS.length - 1);
+    const step = Math.min(frames.length, steps.length - 1);
 
     if (mode === 'intro') {
         return (
             <div className="flex flex-col gap-4">
-                <p className="text-base leading-relaxed text-muted">{t('verify.faceIntro')}</p>
+                <p className={`text-base leading-relaxed ${muted}`}>{t('verify.faceIntro')}</p>
                 <ol className="flex flex-col gap-2">
-                    {PROMPTS.map((key, index) => (
-                        <li key={key} className="flex items-center gap-3 rounded-[14px] bg-white px-4 py-3 ring-1 ring-line">
+                    {steps.map((key, index) => (
+                        <li key={`${key}-${index}`} className={`flex items-center gap-3 rounded-[14px] px-4 py-3 ${card}`}>
                             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink text-sm font-semibold text-volt">{index + 1}</span>
-                            <span className="text-sm font-medium">{t(key)}</span>
+                            <span className="text-sm font-medium">{t(STEP_PROMPTS[key])}</span>
                         </li>
                     ))}
                 </ol>
-                <button type="button" onClick={start} className="btn-primary flex items-center justify-center gap-2">
+                <button type="button" onClick={start} className={`${dark ? 'flex h-14 items-center justify-center rounded-[14px] bg-volt text-base font-semibold text-ink' : 'btn-primary'} flex items-center justify-center gap-2`}>
                     <Camera size={20} aria-hidden="true" />
                     {t('verify.start')}
                 </button>
@@ -102,18 +114,22 @@ export default function FaceCapture({ onDone }) {
     if (mode === 'review') {
         return (
             <div className="flex flex-col gap-4">
-                <div className="grid grid-cols-3 gap-2">
+                <div className={`grid gap-2 ${steps.length > 2 ? 'grid-cols-3' : 'grid-cols-2'}`}>
                     {frames.map((frame, index) => (
                         <figure key={index} className="flex flex-col gap-1">
-                            <img src={frame} alt={t(PROMPTS[index])} className="aspect-[3/4] w-full rounded-2xl object-cover" />
-                            <figcaption className="text-center text-[11px] text-muted">{t('verify.photoOf', { n: index + 1 })}</figcaption>
+                            <img src={frame} alt={t(STEP_PROMPTS[steps[index]])} className="aspect-[3/4] w-full rounded-2xl object-cover" />
+                            <figcaption className={`text-center text-[11px] ${muted}`}>{t(STEP_PROMPTS[steps[index]])}</figcaption>
                         </figure>
                     ))}
                 </div>
-                <button type="button" onClick={() => onDone(frames)} className="btn-primary">
+                <button
+                    type="button"
+                    onClick={() => onDone(frames, source)}
+                    className={dark ? 'h-14 rounded-[14px] bg-volt text-base font-semibold text-ink' : 'btn-primary'}
+                >
                     {t('verify.next')}
                 </button>
-                <button type="button" onClick={start} className="btn-ghost flex items-center justify-center gap-2">
+                <button type="button" onClick={start} className={`${dark ? 'h-12 rounded-[14px] bg-night-card text-sm font-semibold text-white' : 'btn-ghost'} flex items-center justify-center gap-2`}>
                     <RotateCcw size={18} aria-hidden="true" />
                     {t('verify.retake')}
                 </button>
@@ -123,8 +139,10 @@ export default function FaceCapture({ onDone }) {
 
     const prompt = (
         <div className="flex flex-col items-center gap-1 text-center" aria-live="assertive">
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted">{t('verify.photoOf', { n: step + 1 })}</span>
-            <strong className="font-display text-xl font-semibold leading-snug">{t(PROMPTS[step])}</strong>
+            <span className={`text-xs font-semibold uppercase tracking-wide ${muted}`}>{t('verify.photoOf', { n: step + 1, total: steps.length })}</span>
+            <strong className="font-display text-xl font-semibold leading-snug" data-step={steps[step]}>
+                {t(STEP_PROMPTS[steps[step]])}
+            </strong>
         </div>
     );
 
@@ -136,7 +154,7 @@ export default function FaceCapture({ onDone }) {
                 </p>
                 {prompt}
                 <input ref={fileRef} type="file" accept="image/*" capture="user" className="hidden" onChange={handleUpload} />
-                <button type="button" onClick={() => fileRef.current?.click()} className="btn-primary flex items-center justify-center gap-2">
+                <button type="button" onClick={() => fileRef.current?.click()} className={`${dark ? 'h-14 rounded-[14px] bg-volt font-semibold text-ink' : 'btn-primary'} flex items-center justify-center gap-2`}>
                     <Upload size={20} aria-hidden="true" />
                     {t('verify.uploadInstead')}
                 </button>
@@ -159,8 +177,8 @@ export default function FaceCapture({ onDone }) {
                 </div>
             </div>
             <div className="flex justify-center gap-2" aria-hidden="true">
-                {PROMPTS.map((key, index) => (
-                    <span key={key} className={`h-2 w-8 rounded-full ${index < frames.length ? 'bg-ink' : index === frames.length ? 'bg-volt ring-1 ring-ink' : 'bg-line'}`} />
+                {steps.map((key, index) => (
+                    <span key={`${key}-${index}`} className={`h-2 w-8 rounded-full ${index < frames.length ? (dark ? 'bg-white' : 'bg-ink') : index === frames.length ? 'bg-volt ring-1 ring-ink' : dark ? 'bg-night-card' : 'bg-line'}`} />
                 ))}
             </div>
         </div>

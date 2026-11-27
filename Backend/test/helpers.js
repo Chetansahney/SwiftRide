@@ -51,7 +51,7 @@ async function rider(overrides = {}) {
 
 // Unique valid plates: WB01AK0001, WB01AK0002, ...
 const plate = (n) => `WB01AK${String(n).padStart(4, '0')}`;
-async function captain({ verified = true, vehicleType = 'auto', gender, online = true } = {}) {
+async function captain({ verified = true, vehicleType = 'auto', gender, online = true, confirmedWoman = false } = {}) {
     counter += 1;
     const res = await api()
         .post('/captains/register')
@@ -69,6 +69,7 @@ async function captain({ verified = true, vehicleType = 'auto', gender, online =
             { _id: id },
             {
                 'verification.status': 'verified',
+                ...(confirmedWoman ? { gender: 'female', 'genderCheck.status': 'verified' } : {}),
                 shiftSelfie: { windowId: currentShiftWindow().id, status: 'verified', takenAt: new Date() },
                 ...(online
                     ? { status: 'available', socketId: `socket-${counter}`, lastSeenAt: new Date(), location: { type: 'Point', coordinates: [88.352, 22.554] } }

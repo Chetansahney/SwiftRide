@@ -123,13 +123,42 @@ export default function AdminReview() {
                                     {pct(item.face?.landmarkScore)}
                                     {item.face?.landmarkRedFlag ? ' ⚠' : ''}
                                 </dd>
-                                <dt className="text-muted">Head turn</dt>
-                                <dd className="font-semibold">{item.face?.livenessPassed ? 'passed' : 'failed'}</dd>
+                                <dt className="text-muted">Second opinion</dt>
+                                <dd className="font-semibold">{pct(item.face?.faceresScore)}</dd>
+                                <dt className="text-muted">Liveness</dt>
+                                <dd className="font-semibold">
+                                    {item.face?.livenessPassed ? 'passed' : 'failed'}
+                                    {item.face?.steps ? ` (${item.face.steps.join(' → ')})` : ''}
+                                </dd>
                                 <dt className="text-muted">Real photo</dt>
                                 <dd className="font-semibold">{pct(item.face?.real)}</dd>
                             </dl>
                             {item.reasons?.length ? <p className="text-xs text-muted">Flags: {item.reasons.join(', ')}</p> : null}
                             <Actions id={item.captainId} kind="identity" />
+                        </article>
+                    ))}
+                </section>
+
+                <section className="flex flex-col gap-3">
+                    <h2 className="text-lg font-semibold">Women captain checks ({queue?.gender?.length ?? '…'})</h2>
+                    <p className="text-xs text-muted">
+                        Confirms captains who chose &quot;woman&quot; before they can use women-only features. The model only auto-confirms clear cases; please look at the photo,
+                        not just the score.
+                    </p>
+                    {queue?.gender?.length === 0 ? <p className="text-sm text-muted">Nothing waiting.</p> : null}
+                    {queue?.gender?.map((item) => (
+                        <article key={item.captainId} className="flex items-center gap-4 rounded-2xl bg-white p-4 ring-1 ring-line">
+                            <img src={item.image} alt="Live photo" className="h-24 w-24 rounded-xl object-cover" />
+                            <div className="flex flex-1 flex-col gap-2">
+                                <strong>
+                                    {item.name?.firstname} {item.name?.lastname} · {item.vehicle?.plate}
+                                </strong>
+                                <span className="text-xs text-muted">
+                                    Declared {item.declared} · model: {item.estimate || 'unknown'} ({pct(item.pFemale)} woman)
+                                    {item.reason === 'model_disagrees' ? ' · ⚠ model disagrees' : ''}
+                                </span>
+                                <Actions id={item.captainId} kind="gender" />
+                            </div>
                         </article>
                     ))}
                 </section>
@@ -146,6 +175,7 @@ export default function AdminReview() {
                                 </strong>
                                 <span className="text-xs text-muted">
                                     Match {pct(item.score)} · {item.attempts} tries · window {item.windowId}
+                                    {item.reason ? ` · ${item.reason}` : ''}
                                 </span>
                                 <Actions id={item.captainId} kind="shift" />
                             </div>

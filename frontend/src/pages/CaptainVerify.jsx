@@ -7,6 +7,7 @@ import FaceCapture from '../components/captain/FaceCapture';
 import { useLanguage } from '../i18n/LanguageContext';
 import { API, captainAuth } from '../lib/api';
 import { compressFile } from '../lib/images';
+import { STEP_PROMPTS } from '../lib/faceSteps';
 
 const STEPS = ['verify.stepLicence', 'verify.stepFace', 'verify.stepDone'];
 
@@ -21,6 +22,18 @@ export default function CaptainVerify() {
     const [form, setForm] = useState({ dlNumber: '', dob: '', dlName: '' });
     const [dlImage, setDlImage] = useState(null);
     const [error, setError] = useState(null);
+    // Random actions from the server for this attempt (single use, expires in 5 minutes).
+    const [challenge, setChallenge] = useState(null);
+
+    const newChallenge = async () => {
+        setChallenge(null);
+        try {
+            const { data } = await axios.post(`${API}/captains/liveness-challenge`, { purpose: 'verification' }, captainAuth());
+            setChallenge(data);
+        } catch {
+            setError(t('shift.unavailable'));
+        }
+    };
 
     useEffect(() => {
         axios
@@ -42,16 +55,22 @@ export default function CaptainVerify() {
 
     const licenceReady = form.dlNumber.replace(/[^A-Za-z0-9]/g, '').length >= 15 && form.dob && dlImage;
 
-    const submit = async (selfies) => {
+    const submit = async (selfies, capture) => {
         setStep('sending');
         setError(null);
         try {
-            const { data } = await axios.post(`${API}/captains/verification`, { ...form, dlImage, selfies }, captainAuth());
+            const { data } = await axios.post(
+                `${API}/captains/verification`,
+                { ...form, dlImage, selfies, capture, challengeId: challenge?.challengeId },
+                captainAuth()
+            );
             setVerification(data.verification);
             setStep('result');
         } catch (err) {
-            setError(err.response?.status === 503 ? t('shift.unavailable') : err.response?.data?.message || t('verify.reason.bad_image'));
+            const reason = err.response?.data?.reason;
+            setError(err.response?.status === 503 ? t('shift.unavailable') : reason ? t(`verify.reason.${reason}`) : t('verify.reason.bad_image'));
             setStep('face');
+            newChallenge();
         }
     };
 
@@ -75,7 +94,10 @@ export default function CaptainVerify() {
                     className="flex flex-col"
                     onSubmit={(event) => {
                         event.preventDefault();
-                        if (licenceReady) setStep('face');
+                        if (licenceReady) {
+                            setStep('face');
+                            newChallenge();
+                        }
                     }}
                 >
                     <label className="label" htmlFor="dlNumber">
@@ -124,7 +146,7 @@ export default function CaptainVerify() {
             {step === 'face' ? (
                 <div className="flex flex-col gap-4">
                     <FormError message={error} />
-                    <FaceCapture onDone={submit} />
+                    {challenge ? <FaceCapture key={challenge.challengeId} steps={challenge.steps} onDone={submit} /> : <p className="text-sm text-muted">{t('loading')}</p>}
                     <button type="button" onClick={() => setStep('licence')} className="btn-ghost">
                         {t('verify.back')}
                     </button>
@@ -140,7 +162,21 @@ export default function CaptainVerify() {
                 </div>
             ) : null}
 
-            {step === 'result' && verification ? <Result verification={verification} t={t} onRetry={() => setStep('licence')} onHome={() => navigate('/captainhome')} /> : null}
+            {step === 'result' && verification ? (
+                <Result
+                    verification={verification}
+                    t={t}
+                    onRetry={() => {
+                        // Licence details are kept; a failed face check goes straight back to the camera.
+                        const faceOnly = (verification.reasons || []).every((r) => ['liveness_failed', 'selfie_unclear', 'multiple_faces', 'no_face_selfie'].includes(r));
+                        if (faceOnly) {
+                            setStep('face');
+                            newChallenge();
+                        } else setStep('licence');
+                    }}
+                    onHome={() => navigate('/captainhome')}
+                />
+            ) : null}
         </AuthLayout>
     );
 }
@@ -162,12 +198,17 @@ function Result({ verification, t, onRetry, onHome }) {
                 </span>
                 <h2 className="font-display text-2xl font-semibold">{t(view.title)}</h2>
                 {view.body ? <p className="text-base text-muted">{t(view.body)}</p> : null}
+                {status !== 'rejected' && verification.genderCheck === 'in_review' ? (
+                    <p className="rounded-[14px] bg-ink/5 px-4 py-3 text-sm">{t('captain.womanReview')}</p>
+                ) : null}
             </div>
             {shown.length ? (
                 <ul className="flex flex-col gap-2">
                     {shown.map((reason) => (
                         <li key={reason} className="rounded-[14px] bg-signal/10 px-4 py-3 text-sm font-medium text-signal">
-                            {t(`verify.reason.${reason}`)}
+                            {reason === 'liveness_failed' && STEP_PROMPTS[verification.failedStep]
+                                ? t('verify.failedAt', { step: t(STEP_PROMPTS[verification.failedStep]) })
+                                : t(`verify.reason.${reason}`)}
                         </li>
                     ))}
                 </ul>

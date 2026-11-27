@@ -4,6 +4,7 @@
 // last names or socket IDs cross over.
 
 const { currentShiftWindow } = require('./shiftWindow');
+const { isConfirmedWoman } = require('./womenSafety');
 
 function toPlain(doc) {
     if (!doc) return doc;
@@ -27,7 +28,8 @@ function publicCaptain(captain) {
                 vehicleType: plain.vehicle.vehicleType,
             }
             : undefined,
-        isWoman: plain.gender === 'female',
+        // Shown to riders as "Woman captain" only once confirmed.
+        isWoman: isConfirmedWoman(plain),
         verified: plain.verification?.status === 'verified',
         selfieCheckedToday: checkedThisShift,
         photo: checkedThisShift ? selfie.image : undefined,

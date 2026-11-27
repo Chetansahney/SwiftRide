@@ -57,7 +57,20 @@ const captainSchema = new mongoose.Schema({
         type: String,
         enum: ['female', 'male', 'other'],
     },
-    // Women captains can choose to only get ride requests from women riders.
+    // Women-only features ("women riders only", being matched as a woman captain)
+    // need a CONFIRMED woman captain: the face check estimates gender, and anything
+    // unclear goes to a person. Declaring "female" alone unlocks nothing.
+    genderCheck: {
+        status: { type: String, enum: ['not_needed', 'verified', 'in_review', 'rejected'], default: 'not_needed' },
+        estimate: { type: String, enum: ['female', 'male', 'uncertain'] },
+        pFemale: Number,
+        reason: String,
+        decidedBy: { type: String, enum: ['auto', 'admin'] },
+        decidedAt: Date,
+        // Live photo kept only until a person has decided.
+        image: { type: String, select: false },
+    },
+    // Confirmed women captains can choose to only get ride requests from women riders.
     womenRidersOnly: { type: Boolean, default: false },
     // Strikes from "driver asked for extra" and similar reports; paused for review when suspended.
     strikes: { type: Number, default: 0 },
@@ -78,6 +91,21 @@ const captainSchema = new mongoose.Schema({
         score: Number,
         status: { type: String, enum: ['verified', 'in_review', 'rejected'] },
         attempts: Number,
+        reason: String,
+        // Fingerprint of a shift photo waiting for review; added to the gallery if approved.
+        pendingDescriptor: { type: [Number], select: false },
+        pendingEmbedding: { type: [Number], select: false },
+    },
+    // The current liveness challenge (random actions, single use, expires).
+    liveness: {
+        type: {
+            idHash: String,
+            steps: [String],
+            purpose: { type: String, enum: ['verification', 'shift'] },
+            expiresAt: Date,
+            used: Boolean,
+        },
+        select: false,
     },
     // One-time identity check at sign-up: licence + vehicle (via the verification
     // provider) and a liveness selfie face-matched against the licence photo.
@@ -111,15 +139,29 @@ const captainSchema = new mongoose.Schema({
         },
         face: {
             fingerprintScore: Number,
+            distance: Number,
+            faceresScore: Number,
             landmarkScore: Number,
             landmarkRedFlag: Boolean,
             real: Number,
             livenessPassed: Boolean,
-            yaw: [Number],
+            steps: [String],
+            turns: [Number],
+            model: String,
         },
         // Face fingerprints used for every shift check. Never sent to clients.
         referenceEmbedding: { type: [Number], select: false },
         dlEmbedding: { type: [Number], select: false },
+        // ResNet fingerprints (primary signal) of the verified selfie and the licence photo.
+        referenceDescriptor: { type: [Number], select: false },
+        dlDescriptor: { type: [Number], select: false },
+        // Up to 5 recent verified shift selfies, so matching adapts to beards,
+        // glasses and ageing (always also checked against the original).
+        gallery: {
+            type: [{ _id: false, descriptor: [Number], embedding: [Number], at: Date }],
+            select: false,
+        },
+        failedStep: String,
         referenceLandmarks: { type: [Number], select: false },
         // Kept only until a person has reviewed the case, then deleted.
         dlImage: { type: String, select: false },

@@ -1,6 +1,7 @@
 const axios = require("axios");
 const captainModel = require('../models/captain.models');
 const { currentShiftWindow } = require('../utils/shiftWindow');
+const { CONFIRMED_WOMAN_FILTER } = require('../utils/womenSafety');
 
 // "22.5726,88.3639" — the rider's current location sent as a pickup.
 const COORDINATE_PAIR = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/;
@@ -157,7 +158,7 @@ module.exports.getNearestCaptainsByType = async (latitude, longitude, maxMeters 
     const captains = await captainModel
         .find({
             ...dispatchableFilter(),
-            ...(womenOnly ? { gender: 'female' } : {}),
+            ...(womenOnly ? CONFIRMED_WOMAN_FILTER : {}),
             location: {
                 $near: {
                     $geometry: { type: 'Point', coordinates: [longitude, latitude] },
