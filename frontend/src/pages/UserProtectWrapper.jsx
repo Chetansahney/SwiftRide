@@ -1,7 +1,9 @@
 import React, { useEffect, useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { UserDataContext } from '../context/UserContext'; // Assuming this is your context
+import { UserDataContext } from '../context/UserContext';
+import { FullScreenLoader } from '../components/ui/AuthLayout';
+import { syncPlacesFromProfile } from '../lib/places';
 
 const UserProtectWrapper = ({ children }) => {
   const token = localStorage.getItem('userToken');
@@ -23,6 +25,8 @@ const UserProtectWrapper = ({ children }) => {
     .then((response) => {
       if (response.status === 200) {
         setUser(response.data);
+        // Saved places follow the rider across phones.
+        syncPlacesFromProfile(response.data);
         setIsLoading(false);
       }
     })
@@ -34,7 +38,7 @@ const UserProtectWrapper = ({ children }) => {
   }, [token, navigate, setUser]);
 
   if (isLoading) {
-    return <div>Loading...</div>; // Prevent children from rendering until user is verified
+    return <FullScreenLoader label="Loading" />;
   }
 
   return <>{children}</>;

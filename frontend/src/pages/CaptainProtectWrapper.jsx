@@ -2,6 +2,7 @@ import React, { useEffect, useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CaptainDataContext } from '../context/CaptainContext';
 import axios from 'axios';
+import { FullScreenLoader } from '../components/ui/AuthLayout';
 
 const CaptainProtectWrapper = ({ children }) => {
     const token = localStorage.getItem('captainToken');
@@ -11,7 +12,7 @@ const CaptainProtectWrapper = ({ children }) => {
 
     useEffect(() => {
         if (!token) {
-            navigate('/captain-login');
+            navigate('/captainlogin');
             return;
         }
 
@@ -29,16 +30,12 @@ const CaptainProtectWrapper = ({ children }) => {
         .catch((error) => {
             console.error("Profile Fetch Error:", error);
             localStorage.removeItem('captainToken');
-            navigate('/captain-login');
+            navigate('/captainlogin');
         });
     }, [token, navigate, setCaptain]); // Logic stays safely inside here
 
     if (isLoading) {
-        return (
-            <div className="h-screen w-full flex items-center justify-center bg-white">
-                <div className="text-xl font-bold animate-pulse">Loading Captain Profile...</div>
-            </div>
-        );
+        return <FullScreenLoader dark label="Loading captain profile" />;
     }
 
     return <>{children}</>;

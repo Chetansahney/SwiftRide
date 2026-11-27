@@ -1,0 +1,25 @@
+{
+  "matchDistance": 0.5,
+  "reviewDistance": 0.6,
+  "faceresDisagree": 0.3,
+  "landmarkRedFlag": 0.3,
+  "sameAcrossFrames": 0.6,
+  "galleryDriftLimit": 0.6,
+  "licenceShiftLimit": 0.65,
+  "realMin": 0.5,
+  "minTurn": 0.15,
+  "maxStraightTurn": 0.12,
+  "minLiftDrop": 0.05,
+  "minSmileGain": 1.08,
+  "minHappy": 0.6,
+  "femaleConfirm": 0.7,
+  "femaleFloor": 0.5,
+  "maleConfirm": 0.3,
+  "calibration": {
+    "date": "2026-11-27",
+    "data": "Library demo photos: 16 photos of one man vs 63 other people (licence-style and selfie-style copies)",
+    "genuineMaxDistance": 0.556,
+    "impostorMinDistance": 0.574,
+    "note": "Re-run `npm run face:calibrate` on real licence/selfie pairs before launch; it rewrites this file."
+  }
+}

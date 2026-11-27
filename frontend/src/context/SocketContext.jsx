@@ -1,6 +1,7 @@
 import React, { createContext, useEffect, useMemo, useRef } from 'react';
 import { io } from 'socket.io-client';
 
+// eslint-disable-next-line react-refresh/only-export-components -- context and provider live together on purpose
 export const SocketContext = createContext(null);
 
 const SocketProvider = ({ children }) => {

@@ -1,5 +1,7 @@
 const mongoose=require('mongoose');
 
+const pointSchema = new mongoose.Schema({ lat: Number, lng: Number }, { _id: false });
+
 const rideSchema=new mongoose.Schema({
     user :
     {
@@ -16,14 +18,37 @@ const rideSchema=new mongoose.Schema({
         type: String,
         required: true
     },
+    // Geocoded pickup/drop, used for dispatch, the "ended away from drop" check
+    // and the rider's route-safety monitor.
+    pickupPoint: pointSchema,
+    dropPoint: pointSchema,
+    vehicleType: {
+        type: String,
+        enum: ['moto', 'auto', 'car']
+    },
     captain:{
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Captain'
     },
+    // Total the rider pays. Locked when the ride is booked; only the automatic
+    // waiting fee (after 3 free minutes) and an optional tip can add to it.
     fare: {
         type: Number,
         required: true
     },
+    fareBreakdown: {
+        ride: { type: Number, default: 0 },
+        // Paid 100% to the driver when the drop is somewhere they usually
+        // have to drive back from empty.
+        returnFee: { type: Number, default: 0 },
+        nightFee: { type: Number, default: 0 },
+        waitingFee: { type: Number, default: 0 },
+        tip: { type: Number, default: 0 },
+        // Wallet credit used for this ride (SwiftRide pays it; the captain still gets the full fare).
+        creditUsed: { type: Number, default: 0 },
+    },
+    // Ride Guarantee: ₹50 credited once if a captain drops this ride after accepting.
+    guaranteeCredited: { type: Boolean, default: false },
     status: {
         type: String,
         enum: ['requested', 'accepted','ongoing', 'completed', 'cancelled'],
@@ -31,13 +56,16 @@ const rideSchema=new mongoose.Schema({
     },
     paymentStatus: {
         type: String,
-        enum: ['pending', 'paid'],
+        enum: ['pending', 'paid', 'not_charged'],
         default: 'pending'
     },
     createdAt: {
         type: Date,
         default: Date.now
     },
+    arrivedAt: Date,
+    startedAt: Date,
+    endedAt: Date,
     distance:{
         type: Number
     }
@@ -54,11 +82,82 @@ const rideSchema=new mongoose.Schema({
         type: String
     }
     ,
+    // 1–5 stars: the captain's rating of the rider, and the rider's rating of the captain.
+    userRating:{
+        type: Number,
+        min: 1,
+        max: 5
+    },
+    captainRating:{
+        type: Number,
+        min: 1,
+        max: 5
+    },
+    // Safety
+    preferWomenCaptain: { type: Boolean, default: false },
+    riderIsWoman: { type: Boolean, default: false },
+    // Public, unguessable token for the live "track my ride" link shared with trusted contacts.
+    shareToken: { type: String, index: true, sparse: true },
+    safety: {
+        driverConfirmed: Boolean,
+        endedAwayFromDrop: { type: Boolean, default: false },
+        reachedSafely: Boolean,
+    },
     otp:{
         type: String,
         select : false,
         required: true
-    }
-});
+    },
+    // Wrong PIN tries; the ride can't be started after 5.
+    otpAttempts: { type: Number, default: 0, select: false },
+    // When the ride was last offered to captains (re-set if a captain drops it).
+    requestedAt: { type: Date, default: Date.now },
+    cancelledAt: Date,
+    cancelledBy: { type: String, enum: ['rider', 'captain', 'system'] },
+    cancelReason: { type: String, maxlength: 200 },
+    // Captains who dropped or declined this request; it isn't offered to them again.
+    declinedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Captain' }],
+    // Wave dispatch (services/dispatch.js): who was offered the ride, and when.
+    offers: [{
+        _id: false,
+        captain: { type: mongoose.Schema.Types.ObjectId, ref: 'Captain' },
+        wave: Number,
+        ring: Number,
+        at: Date,
+        expiresAt: Date,
+        status: { type: String, enum: ['offered', 'declined', 'expired', 'withdrawn', 'accepted'] },
+        etaMin: Number,
+        etaS: Number,
+        estimated: Boolean,
+        distanceM: Number,
+        score: Number,
+    }],
+    // The captain's road time to the pickup, computed only on the server and
+    // pushed to both apps, so the rider and the captain always see one number.
+    approach: {
+        etaS: Number,
+        distanceM: Number,
+        estimated: Boolean,
+        at: Date,
+    },
+    dispatch: {
+        ringIndex: { type: Number, default: 0 },
+        wave: { type: Number, default: 0 },
+        nextAt: Date,
+        startedAt: Date,
+        radiusM: Number,
+        notified: { type: Number, default: 0 },
+        womenNoticeSent: Boolean,
+    },
+    ratingComment: { type: String, maxlength: 300 },
+}, { timestamps: { createdAt: false, updatedAt: true } });
+
+// History pages and "do you already have a ride?" checks.
+rideSchema.index({ user: 1, createdAt: -1 });
+rideSchema.index({ captain: 1, createdAt: -1 });
+rideSchema.index({ user: 1, status: 1 });
+rideSchema.index({ captain: 1, status: 1 });
+// The dispatcher looks for requests whose next wave is due.
+rideSchema.index({ status: 1, 'dispatch.nextAt': 1 });
 
 module.exports=mongoose.model('ride',rideSchema);

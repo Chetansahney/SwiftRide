@@ -1,86 +1,103 @@
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronUp, Navigation } from 'lucide-react';
+import { Navigation, TriangleAlert } from 'lucide-react';
 import FinishRide from '../components/FinishRIde';
-import { useRef } from 'react';
 import CaptainRouteMap from '../components/CaptainRouteMap';
+import SosSheet from '../components/safety/SosSheet';
+import { CaptainDataContext } from '../context/CaptainContext';
+import socket from '../socket';
+import { useLanguage } from '../i18n/LanguageContext';
+import { formatFare, shortPlace } from '../lib/config';
+import useKeepAwake from '../lib/useKeepAwake';
 
-
-const CaptainRiding = (props) => {
+const CaptainRiding = () => {
+    const { t } = useLanguage();
     const [finishRidePanel, setFinishRidePanel] = useState(false);
-    const finishRidePanelRef = React.useRef(null);
-    const[captainRiding, setCaptainRiding] = useState(true);
-    const [ride, setRide] = useState(null);
-    const submitHandler=(e)=>{
-        e.preventDefault();
-        setFinishRidePanel(true);
-        setCaptainRiding(false);
-    };
-    const[otp, setOtp] = useState("");
-
-    useEffect(() => {
-        const rideData = localStorage.getItem('activeRide');
-        if (!rideData) {
-            return;
-        }
+    const [sosOpen, setSosOpen] = useState(false);
+    const { captain } = useContext(CaptainDataContext);
+    const [ride] = useState(() => {
         try {
-            setRide(JSON.parse(rideData));
+            return JSON.parse(localStorage.getItem('activeRide') || 'null');
         } catch (error) {
             console.error('Failed to parse activeRide:', error);
+            return null;
         }
+    });
+
+    // The rider and their trusted contacts follow this phone's location.
+    useKeepAwake(Boolean(ride?._id));
+
+    // Identify this socket with the login token (again after any reconnect).
+    useEffect(() => {
+        const join = () => socket.emit('join', { token: localStorage.getItem('captainToken'), userType: 'captain' });
+        join();
+        socket.on('connect', join);
+        return () => socket.off('connect', join);
     }, []);
 
+    // Keep sending live location during the trip: it feeds the rider's map and
+    // the live link shared with their trusted contacts.
+    useEffect(() => {
+        if (!captain?._id || !ride?._id || !navigator.geolocation) return undefined;
+        const send = () =>
+            navigator.geolocation.getCurrentPosition(
+                (position) =>
+                    socket.emit('update-location-captain', {
+                        rideId: ride._id,
+                        location: { lat: position.coords.latitude, lng: position.coords.longitude },
+                    }),
+                () => {},
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+            );
+        send();
+        const timer = setInterval(send, 5000);
+        return () => clearInterval(timer);
+    }, [captain?._id, ride?._id]);
+
     return (
-        <div className='h-screen relative flex flex-col justify-end'>
-            <div className='fixed p-6 top-0 flex items-center justify-between w-screen z-10'>
-                <img className='w-16' src="https://upload.wikimedia.org/wikipedia/commons/c/cc/Uber_logo_2018.png" alt="" />
-                <Link to='/captainhome' className='h-10 w-10 bg-white flex items-center justify-center rounded-full shadow-md'>
-                    <Navigation size={20} />
+        <div className="relative flex h-full flex-col overflow-hidden bg-night text-white">
+            <div className="relative flex-1">
+                <CaptainRouteMap ride={ride} mode="to-destination" />
+                <button
+                    type="button"
+                    onClick={() => setSosOpen(true)}
+                    className="absolute left-5 top-6 z-20 flex h-12 items-center gap-2 rounded-full bg-signal px-4 text-sm font-semibold text-white shadow-float"
+                >
+                    <TriangleAlert size={18} aria-hidden="true" />
+                    {t('captain.sos')}
+                </button>
+                <Link
+                    to="/captainhome"
+                    aria-label="Captain home"
+                    className="absolute right-5 top-6 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-night-card text-white shadow-float"
+                >
+                    <Navigation size={20} aria-hidden="true" />
                 </Link>
             </div>
 
-            <div className='h-4/5 w-screen fixed top-0 left-0 -z-10'>
-                <CaptainRouteMap ride={ride} mode="to-destination" />
-            </div>
-
-            <div className='h-1/5 p-6 bg-yellow-400 flex items-center justify-between relative shadow-2xl rounded-t-3xl'>
-                <div className='absolute top-3 left-1/2 -translate-x-1/2' onClick={() => setFinishRidePanel(true)}>
-                    <ChevronUp />
+            <div className="relative z-10 -mt-7 mx-auto flex w-full max-w-xl items-center justify-between gap-4 rounded-t-sheet border-t border-night-line bg-night px-5 pb-8 pt-6">
+                <div className="min-w-0">
+                    <p className="text-xs text-night-muted">{t('captain.toDrop')}</p>
+                    <p className="truncate text-lg font-semibold">{shortPlace(ride?.destination) || '—'}</p>
+                    <p className="font-display text-sm text-volt">{formatFare(ride?.fare)}</p>
                 </div>
-                <div>
-                    <h4 className='text-lg font-bold'>4.2 km away</h4>
-                    <p className='text-sm font-medium'>Pickup: Kankariya Talab</p>
-                </div>
-                <button onClick={() => setFinishRidePanel(true)} className='bg-black text-white px-10 py-3 rounded-xl font-bold'>
-                    Enter OTP
+                <button
+                    type="button"
+                    onClick={() => setFinishRidePanel(true)}
+                    className="h-14 shrink-0 rounded-2xl bg-volt px-6 text-base font-semibold text-ink active:scale-[0.98]"
+                >
+                    {t('captain.finish')}
                 </button>
             </div>
 
-            
-                <div className='fixed w-full z-20 bottom-0 bg-white px-5 py-10 pt-12 rounded-t-3xl shadow-2xl'>
-                    <div className='absolute top-4 left-1/2 -translate-x-1/2 w-12 h-1.5 bg-gray-200 rounded-full'></div>
-                    <h3 className='text-2xl font-bold mb-7 text-center'>Enter OTP to Start</h3>
-                    <form onSubmit={submitHandler}>
-                        <input
-                            type="text"
-                            placeholder="0000"
-                            className="w-full bg-gray-100 px-6 py-5 text-2xl font-mono tracking-[20px] text-center rounded-2xl mb-6"
-                            value={otp}
-                            onChange={(e) => setOtp(e.target.value)}
-                        />
-                        <button className='w-full bg-green-600 text-white font-bold p-4 rounded-2xl text-lg' 
-                            onClick={() => {
-                                setFinishRidePanel(true);
-                                setCaptainRiding(false);
-                            }}>
-                            Confirm & Start Ride
-                        </button>
-                    </form>
-                </div>
-            
-            <div ref={finishRidePanelRef} className={`fixed w-full z-20 bottom-0 bg-white px-5 py-10 pt-12 rounded-t-3xl shadow-2xl transition-transform duration-500 ease-in-out ${finishRidePanel ? 'translate-y-0' : 'translate-y-full'}`}>
-                <FinishRide ride={ride} />
+            <div
+                className={`fixed inset-x-0 bottom-0 z-30 mx-auto max-w-xl rounded-t-sheet border-t border-night-line bg-night px-5 pb-8 pt-3 transition-transform duration-500 ease-in-out ${finishRidePanel ? 'translate-y-0' : 'pointer-events-none translate-y-full border-transparent'}`}
+                aria-hidden={!finishRidePanel}
+            >
+                <FinishRide ride={ride} onClose={() => setFinishRidePanel(false)} />
             </div>
+
+            <SosSheet open={sosOpen} onClose={() => setSosOpen(false)} ride={ride} role="captain" dark />
         </div>
     );
 };

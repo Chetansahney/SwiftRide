@@ -1,6 +1,6 @@
 import React from 'react';
 import { Route, Routes } from 'react-router-dom';
-import Home from './pages/Home'; // Check if file is home.jsx or Home.jsx
+import Home from './pages/Home';
 import Userlogin from './pages/Userlogin';
 import Usersignup from './pages/Usersignup';
 import Captainlogin from './pages/Captainlogin';
@@ -12,11 +12,14 @@ import CaptainHome from './pages/CaptainHome';
 import CaptainProtectWrapper from './pages/CaptainProtectWrapper';
 import Riding from './pages/Riding';
 import CaptainRiding from './pages/CaptainRiding';
-import livetracking from './components/livetracking';
-import WaitingForDriver from './components/WaitingForDriver';
+import Account from './pages/Account';
+import TrackTrip from './pages/TrackTrip';
+import CaptainVerify from './pages/CaptainVerify';
+import AdminReview from './pages/AdminReview';
+import { PrivacyPage, SupportPage, TermsPage } from './pages/Legal';
 const App = () => {
   return (
-    <div>
+    <div className="h-full">
       <Routes>
         <Route path="/" element={<Start />} /> 
         <Route path="/home" element={
@@ -24,9 +27,28 @@ const App = () => {
             <Home />
           </UserProtectWrapper>
         } />
+        <Route path="/account" element={
+          <UserProtectWrapper>
+            <Account />
+          </UserProtectWrapper>
+        } />
         <Route path="/Userlogin" element={<Userlogin />} />
-        <Route path="/riding" element={<Riding />} />
-        <Route path="/start-ride" element={<Riding />} />
+        <Route path="/riding" element={
+          <UserProtectWrapper>
+            <Riding />
+          </UserProtectWrapper>
+        } />
+        <Route path="/start-ride" element={
+          <UserProtectWrapper>
+            <Riding />
+          </UserProtectWrapper>
+        } />
+        {/* Public: help, and the draft Terms and Privacy Policy. */}
+        <Route path="/support" element={<SupportPage />} />
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        {/* Public: live trip link shared with trusted contacts (no login). */}
+        <Route path="/track/:token" element={<TrackTrip />} />
 
         <Route path="/usersignup" element={<Usersignup />} />
         <Route path="/captainlogin" element={<Captainlogin />} />
@@ -35,12 +57,19 @@ const App = () => {
           <UserProtectWrapper>
             <Userlogout />
           </UserProtectWrapper>
-        }> </Route>
+        } />
         <Route path="/captainhome" element={
           <CaptainProtectWrapper>
             <CaptainHome />
           </CaptainProtectWrapper>
         } />
+        <Route path="/captain/verify" element={
+          <CaptainProtectWrapper>
+            <CaptainVerify />
+          </CaptainProtectWrapper>
+        } />
+        {/* Team-only: approve or reject verifications (needs the ADMIN_KEY). */}
+        <Route path="/admin/review" element={<AdminReview />} />
         <Route path="/captain-riding" element={
           <CaptainProtectWrapper>
             <CaptainRiding />

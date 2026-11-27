@@ -1,62 +1,102 @@
-const captainModel=require('../models/captain.models' );
-const captainServices=require('../services/captain.services');
-const {validationResult}=require('express-validator');
-const blacklistTokenModel=require('../models/blacklistTokens.model');
+const captainModel = require('../models/captain.models');
+const rideModel = require('../models/ride.model');
+const accounts = require('../services/account.services');
+const { normalise } = require('../services/verificationProvider');
+const { isConfirmedWoman } = require('../utils/womenSafety');
 
-module.exports.register=async (req,res)=>{
-    const errors=validationResult(req);
-    if(!errors.isEmpty()){
-        return res.status(400).json({errors:errors.array()});
-    }
-    const { name, email, password, vehicle } = req.body;
-    const isAlreadyExist = await captainModel.findOne({ email });
-    if(isAlreadyExist){
-        return res.status(400).json({message:"Captain with this email already exists"});
-    }
+const ACTIVE = ['accepted', 'ongoing'];
 
-        const hashedPassword=await captainModel.hashPassword(password);
-
-        const captain=await captainServices.register({
-            firstname: name.firstname, lastname: name.lastname,email,password: hashedPassword,color: vehicle.color,model:vehicle.model,plate:vehicle.plate,capacity:vehicle.capacity,vehicleType:vehicle.vehicleType
+module.exports.register = async (req, res) => {
+    const { name, email, phone, password, vehicle, gender } = req.body;
+    try {
+        const captain = await captainModel.create({
+            name: { firstname: name.firstname, lastname: name.lastname || undefined },
+            email,
+            phone,
+            password: await captainModel.hashPassword(password),
+            gender: ['female', 'male', 'other'].includes(gender) ? gender : undefined,
+            vehicle: {
+                color: vehicle.color,
+                model: vehicle.model,
+                plate: normalise(vehicle.plate),
+                capacity: vehicle.capacity,
+                vehicleType: vehicle.vehicleType,
+            },
         });
-        
-        const token=captain.generateAuthToken();
-        
-        return res.status(201).json({token,captain});
+        res.status(201).json({ captain, token: captain.generateAuthToken() });
+    } catch (error) {
+        if (accounts.isDuplicateKey(error)) {
+            const plate = Object.keys(error.keyPattern || {}).some((key) => key.includes('plate'));
+            return res.status(409).json({
+                message: plate ? 'This vehicle number is already registered.' : 'An account with this email already exists. Please log in.',
+            });
+        }
+        throw error;
     }
+};
 
+module.exports.loginCaptain = async (req, res) => {
+    const captain = await accounts.login(captainModel, req.body.email, req.body.password);
+    if (!captain) return res.status(401).json({ message: accounts.INVALID_LOGIN });
+    res.status(200).json({ captain, token: captain.generateAuthToken() });
+};
 
-    module.exports.loginCaptain=async (req,res,next)=>{
-        const errors=validationResult(req);
-        if(!errors.isEmpty()){
-            return res.status(401).json({errors:errors.array()});
-        }
-        const {email,password}=req.body;
-        const captain=await captainModel.findOne({email}).select('+password');
-        if(!captain){
-            return res.status(401).json({message:"Captain with this email does not exist"});
-        }
-        const isMatch=await captain.comparePassword(password);
-        if(!isMatch){
-            return res.status(401).json({message:"Invalid email or password"});
-        }
-        const token=captain.generateAuthToken();
-        res.cookie('token',token);
-        return res.status(200).json({token,captain});
+module.exports.getCaptainProfile = (req, res) => {
+    res.status(200).json({ captain: req.captain });
+};
+
+module.exports.logoutCaptain = async (req, res) => {
+    await accounts.logout(req.token);
+    await captainModel.updateOne({ _id: req.captain._id }, { status: 'unavailable', socketId: null });
+    res.status(200).json({ message: 'Logged out successfully' });
+};
+
+module.exports.logoutAll = async (req, res) => {
+    await accounts.logoutEverywhere(captainModel, req.captain._id);
+    await captainModel.updateOne({ _id: req.captain._id }, { status: 'unavailable', socketId: null });
+    res.status(200).json({ message: 'Logged out on all devices' });
+};
+
+module.exports.changePassword = async (req, res) => {
+    const captain = await accounts.changePassword(captainModel, req.captain._id, req.body.currentPassword, req.body.newPassword);
+    if (!captain) return res.status(400).json({ message: 'Current password is wrong' });
+    res.status(200).json({ message: 'Password changed', token: captain.generateAuthToken() });
+};
+
+// Removes the captain's account and personal data. Past rides stay for the
+// riders' history but no longer point to the deleted account.
+module.exports.deleteAccount = async (req, res) => {
+    if (await rideModel.exists({ captain: req.captain._id, status: { $in: ACTIVE } })) {
+        return res.status(409).json({ message: 'Finish your current ride first.' });
     }
+    await rideModel.updateMany({ captain: req.captain._id }, { $unset: { captain: 1 } });
+    await captainModel.findByIdAndDelete(req.captain._id);
+    await accounts.logout(req.token);
+    res.status(200).json({ message: 'Account deleted' });
+};
 
-
-module.exports.getCaptainProfile=(req,res,next)=>{
-    res.status(200).json({captain:req.captain});
-}
-
-
-module.exports.logoutCaptain=async (req,res,next)=>{
-    const token=req.cookies.token || req.headers.authorization.split(' ')[1];
-   await blacklistTokenModel.create({token});
-    res.clearCookie('token'); 
-    res.status(200).json({message:"Logged out successfully"});
-}
-
-
-
+// Gender (before verification only) and, for confirmed women captains, "women riders only".
+module.exports.updateSettings = async (req, res) => {
+    const current = req.captain;
+    const updates = {};
+    if (req.body.phone) updates.phone = req.body.phone;
+    if (req.body.gender !== undefined && (req.body.gender || undefined) !== current.gender) {
+        // Gender is part of the identity check; after it, only the team can change it,
+        // so nobody can switch to "female" later to get women-only rides.
+        if (!['not_started', 'rejected', undefined].includes(current.verification?.status)) {
+            return res.status(403).json({ message: 'Your gender was confirmed during verification. Contact support to change it.', reason: 'gender_locked' });
+        }
+        updates.gender = req.body.gender || undefined;
+        updates.genderCheck = { status: 'not_needed' };
+    }
+    if (req.body.womenRidersOnly === true || req.body.womenRidersOnly === 'true') {
+        if (!isConfirmedWoman(current) || updates.gender) {
+            return res.status(403).json({ message: 'Women riders only is available once you are confirmed as a woman captain.', reason: 'not_confirmed' });
+        }
+        updates.womenRidersOnly = true;
+    } else if (req.body.womenRidersOnly !== undefined || updates.gender) {
+        updates.womenRidersOnly = false;
+    }
+    const captain = await captainModel.findByIdAndUpdate(req.captain._id, { $set: updates }, { new: true, runValidators: true });
+    res.status(200).json({ captain });
+};

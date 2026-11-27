@@ -1,96 +1,37 @@
-import { LoadScript, GoogleMap, DirectionsRenderer, Marker } from '@react-google-maps/api';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
+import socket from '../socket';
+import BaseMap, { MapMarker, MapRoute, MapVehicle } from './ui/BaseMap';
+import { useGeolocation, useRoute } from '../lib/maps';
 
-const mapContainerStyle = {
-    width: '100%',
-    height: '100%',
-};
-
-const UserRouteMap = ({ destination }) => {
-    const [directions, setDirections] = useState(null);
-    const [userLocation, setUserLocation] = useState(null);
-    const [isMapReady, setIsMapReady] = useState(false);
-
-    const defaultCenter = useMemo(
-        () => ({ lat: 22.5726, lng: 88.3639 }),
-        []
-    );
+// Rider's map during the trip: the vehicle driving along the route to the drop.
+// Uses the captain's live position (sent every few seconds), or the rider's own
+// GPS until the first update arrives.
+const UserRouteMap = ({ destination, dropPoint, rideId, vehicleType = 'car' }) => {
+    const userLocation = useGeolocation();
+    const [captainLocation, setCaptainLocation] = useState(null);
 
     useEffect(() => {
-        if (!navigator.geolocation) {
-            return;
-        }
+        const handle = (payload) => {
+            if (!payload?.location) return;
+            if (rideId && payload.rideId && payload.rideId !== rideId) return;
+            setCaptainLocation(payload.location);
+        };
+        socket.on('captain-location', handle);
+        return () => socket.off('captain-location', handle);
+    }, [rideId]);
 
-        const watchId = navigator.geolocation.watchPosition(
-            (position) => {
-                setUserLocation({
-                    lat: position.coords.latitude,
-                    lng: position.coords.longitude,
-                });
-            },
-            () => {},
-            { enableHighAccuracy: true, maximumAge: 1000, timeout: 1000 }
-        );
-
-        return () => navigator.geolocation.clearWatch(watchId);
-    }, []);
-
-    useEffect(() => {
-        if (!isMapReady || !destination || !userLocation || !window.google) {
-            return;
-        }
-
-        const directionsService = new window.google.maps.DirectionsService();
-        directionsService.route(
-            {
-                origin: userLocation,
-                destination,
-                travelMode: window.google.maps.TravelMode.DRIVING,
-            },
-            (result, status) => {
-                if (status === window.google.maps.DirectionsStatus.OK) {
-                    setDirections(result);
-                }
-            }
-        );
-    }, [isMapReady, destination, userLocation]);
-
-    const center = userLocation || defaultCenter;
+    const here = captainLocation || userLocation;
+    const target = dropPoint?.lat != null ? dropPoint : destination;
+    const route = useRoute(here, target, 'user');
+    const type = vehicleType === 'bike' ? 'moto' : vehicleType;
 
     return (
-        <div className="relative w-full h-full">
-            <LoadScript
-                googleMapsApiKey={import.meta.env.VITE_GOOGLE_MAPS_API}
-                onLoad={() => setIsMapReady(true)}
-            >
-                <GoogleMap
-                    mapContainerStyle={mapContainerStyle}
-                    center={center}
-                    zoom={14}
-                    options={{
-                        streetViewControl: false,
-                        mapTypeControl: false,
-                        fullscreenControl: false,
-                    }}
-                >
-                    {userLocation ? (
-                        <Marker position={userLocation} />
-                    ) : null}
-                    {directions ? (
-                        <DirectionsRenderer
-                            directions={directions}
-                            options={{
-                                suppressMarkers: false,
-                                polylineOptions: {
-                                    strokeColor: '#2563eb',
-                                    strokeOpacity: 0.9,
-                                    strokeWeight: 5,
-                                },
-                            }}
-                        />
-                    ) : null}
-                </GoogleMap>
-            </LoadScript>
+        <div className="relative h-full w-full">
+            <BaseMap center={here || undefined} zoom={14}>
+                {route?.coordinates ? <MapRoute coordinates={route.coordinates} theme="day" bottomInset={40} refit /> : null}
+                {captainLocation ? <MapVehicle position={captainLocation} type={type} title="Your ride" /> : userLocation ? <MapMarker position={userLocation} icon="user" title="You" /> : null}
+                {route?.to ? <MapMarker position={route.to} icon="drop" title="Drop" /> : null}
+            </BaseMap>
         </div>
     );
 };

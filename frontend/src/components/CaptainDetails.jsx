@@ -1,111 +1,205 @@
-import React, { useContext, useEffect, useState } from "react";
-import axios from "axios";
-import { CaptainDataContext } from "../context/CaptainContext";
+import React, { useContext, useEffect, useState } from 'react';
+import axios from 'axios';
+import { Link } from 'react-router-dom';
+import { BadgeCheck, ChevronRight, Clock, Phone, Power, ShieldAlert, ShieldCheck, Smartphone, X } from 'lucide-react';
+import { CaptainDataContext } from '../context/CaptainContext';
+import VehicleArt from './ui/VehicleArt';
+import NumberPlate from './ui/NumberPlate';
+import ShiftSelfieGate from './captain/ShiftSelfieGate';
+import CaptainSafetySettings from './captain/CaptainSafetySettings';
+import { useLanguage } from '../i18n/LanguageContext';
+import { formatFare, vehicleMeta } from '../lib/config';
+import { API, captainAuth } from '../lib/api';
+import useKeepAwake from '../lib/useKeepAwake';
+
+// Hidden for longer than this, the captain has probably missed ride offers
+// (each one waits 15 s, and 2 minutes without location means offline).
+const AWAY_NOTICE_MS = 30 * 1000;
 
 const CaptainDetails = () => {
+    const { t } = useLanguage();
     const { captain, setCaptain } = useContext(CaptainDataContext);
-    const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [settingsOpen, setSettingsOpen] = useState(false);
+    const [verification, setVerification] = useState(null);
+    const [stats, setStats] = useState(null);
+
+    // Today's earnings and rides, and the riders' average rating.
+    useEffect(() => {
+        axios
+            .get(`${API}/rides/captain/stats`, captainAuth())
+            .then(({ data }) => setStats(data))
+            .catch((fetchError) => console.error('Stats fetch failed:', fetchError));
+    }, []);
+
+    // Verification + this shift window's face check. Re-checks when the window ends.
+    useEffect(() => {
+        let cancelled = false;
+        let timer;
+        const load = () =>
+            axios
+                .get(`${API}/captains/verification`, captainAuth())
+                .then(({ data }) => {
+                    if (cancelled) return;
+                    setVerification(data.verification);
+                    const msLeft = new Date(data.verification.shift.endsAt).getTime() - Date.now();
+                    timer = setTimeout(load, Math.max(5000, msLeft + 2000));
+                })
+                .catch((fetchError) => console.error('Verification fetch failed:', fetchError));
+        load();
+        return () => {
+            cancelled = true;
+            clearTimeout(timer);
+        };
+    }, []);
 
     useEffect(() => {
-        if (captain) return;
-
-        const token = localStorage.getItem("token");
-        if (!token) return;
-
+        if (captain) return undefined;
+        const token = localStorage.getItem('captainToken');
+        if (!token) return undefined;
         const controller = new AbortController();
-        setIsLoading(true);
-        setError(null);
-
         axios
             .get(`${import.meta.env.VITE_BASE_URL}/captains/profile`, {
                 headers: { Authorization: `Bearer ${token}` },
                 signal: controller.signal,
             })
             .then((response) => {
-                if (response.status === 200) {
-                    setCaptain(response.data.captain);
-                }
+                if (response.status === 200) setCaptain(response.data.captain);
             })
             .catch((fetchError) => {
-                if (fetchError.code === "ERR_CANCELED") return;
-                console.error("Captain profile fetch failed:", fetchError);
-                setError("Unable to load captain details.");
-            })
-            .finally(() => setIsLoading(false));
-
+                if (fetchError.code === 'ERR_CANCELED') return;
+                console.error('Captain profile fetch failed:', fetchError);
+                setError('Unable to load captain details.');
+            });
         return () => controller.abort();
     }, [captain, setCaptain]);
 
-    const firstName = captain?.name?.firstname || "";
-    const lastName = captain?.name?.lastname || "";
-    const displayName = [firstName, lastName].filter(Boolean).join(" ") || "Captain";
+    const displayName = [captain?.name?.firstname, captain?.name?.lastname].filter(Boolean).join(' ') || 'Captain';
     const vehicle = captain?.vehicle || {};
-    const hoursOnline = captain?.stats?.hoursOnline ?? "--";
-    const totalRides = captain?.stats?.totalRides ?? "--";
-    const rating = captain?.stats?.rating ?? "--";
+    const meta = vehicleMeta(vehicle.vehicleType || 'car');
+    const status = verification?.status;
+    const shift = verification?.shift;
+    const strikes = captain?.strikes || 0;
+    // Online = can be offered rides right now.
+    const online = status === 'verified' && shift?.status === 'verified' && !captain?.suspended;
+    const { screenOn, awayMs, clearAway } = useKeepAwake(online);
+    const statTiles = [
+        { label: t('captain.earnings'), value: stats ? formatFare(stats.today.earnings) : '--' },
+        { label: t('captain.ridesToday'), value: stats?.today.rides ?? '--' },
+        { label: t('captain.rating'), value: stats?.rating ? `${stats.rating} ★` : '--' },
+    ];
 
-    return (   
-        <div>
-            <div className='flex items-center justify-between'>
-                <div className='flex items-center gap-3'>
-                    <div className='h-12 w-12 rounded-full overflow-hidden border-2 border-white shadow-sm'>
-                        <img
-                            className='h-full w-full object-cover'
-                            src="hrishi.jpeg"
-                            alt="Captain"
-                        />
-                    </div>
-                    <div>
-                        <h2 className='text-lg font-bold text-gray-900 leading-tight'>
-                            {displayName}
-                        </h2>
-                    </div>
+    return (
+        <div className="flex flex-col gap-3.5">
+            {captain?.suspended ? (
+                <div className="flex items-start gap-3 rounded-[18px] bg-signal/20 p-4" role="alert">
+                    <ShieldAlert size={22} className="shrink-0 text-[#FF8A8F]" aria-hidden="true" />
+                    <span className="text-sm font-semibold leading-snug">{t('captain.suspended')}</span>
                 </div>
-                <div className='text-right'>
-                    <h4 className='text-xl font-semibold text-gray-900'>₹2,450.20</h4>
-                    <p className='text-[10px] font-bold text-gray-800 uppercase tracking-wider'>Today's Earnings</p>
+            ) : !verification ? null : status === 'in_review' ? (
+                <div className="flex items-start gap-3 rounded-[18px] bg-night-card p-4" role="status">
+                    <Clock size={22} className="shrink-0 text-volt" aria-hidden="true" />
+                    <span className="text-sm font-semibold leading-snug">{t('verify.bannerReview')}</span>
                 </div>
-            </div>
-
-            <div className='text-right mt-2'>
-                <h4 className='text-xl font-semibold text-gray-900'>
-                    {vehicle.vehicleType || '--'}  {/* ✅ fixed from {vehicleType} */}
-                </h4>
-                <p className='text-[10px] font-bold text-gray-800 uppercase tracking-wider'>Vehicle Type</p>
-            </div>
-
-            {error && <p className='text-xs text-red-500 mt-2'>{error}</p>}
-
-            <div className='flex items-center justify-around bg-amber-300 py-6 rounded-2xl shadow-sm border border-amber-500/10 mt-6'>
-                <div className='flex flex-col items-center gap-1'>
-                    <i className="text-2xl ri-timer-2-line text-gray-800"></i>
-                    <h5 className='text-lg font-bold text-gray-900'>{hoursOnline}</h5>
-                    <p className='text-[10px] font-bold text-gray-700 uppercase'>Hours Online</p>
+            ) : status !== 'verified' ? (
+                <Link to="/captain/verify" className="flex min-h-16 items-center gap-3 rounded-[18px] bg-volt p-4 text-ink">
+                    <ShieldCheck size={24} className="shrink-0" aria-hidden="true" />
+                    <strong className="flex-1 text-base font-semibold leading-snug">{t('verify.banner')}</strong>
+                    <ChevronRight size={22} aria-hidden="true" />
+                </Link>
+            ) : shift.status !== 'verified' ? (
+                <ShiftSelfieGate key={shift.windowId} shift={shift} onUpdate={setVerification} />
+            ) : (
+                <div className="flex h-16 items-center justify-between rounded-[18px] bg-volt pl-5 pr-2.5 text-ink" role="status">
+                    <span className="flex flex-col">
+                        <strong className="font-display text-lg font-semibold">{t('captain.online')}</strong>
+                        <span className="inline-flex items-center gap-1 text-xs font-medium">
+                            <BadgeCheck size={13} aria-hidden="true" />
+                            {t('shift.verified', { window: shift.label })}
+                        </span>
+                    </span>
+                    <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-ink text-volt" aria-hidden="true">
+                        <Power size={20} />
+                    </span>
                 </div>
-
-                <div className='flex flex-col items-center gap-1'>
-                    <i className="text-2xl ri-speed-up-line text-gray-800"></i>
-                    <h5 className='text-lg font-bold text-gray-900'>{totalRides}</h5>
-                    <p className='text-[10px] font-bold text-gray-700 uppercase'>Total Rides</p>
-                </div>
-
-                <div className='flex flex-col items-center gap-1'>
-                    <i className="text-2xl ri-booklet-line text-gray-800"></i>
-                    <h5 className='text-lg font-bold text-gray-900'>{rating}</h5>
-                    <p className='text-[10px] font-bold text-gray-700 uppercase'>Rating</p>
-                </div>
-            </div>
-
-            {isLoading && (
-                <p className='text-sm text-gray-500 mt-3'>Loading captain details...</p>
             )}
 
-            <div className='w-full flex justify-center mt-2'>
-                <div className='w-12 h-1 bg-amber-500/30 rounded-full'></div>
+            {online ? (
+                <div
+                    className={`flex items-start gap-3 rounded-[14px] px-4 py-3 text-xs font-semibold leading-snug ${screenOn ? 'bg-night-card text-night-muted' : 'bg-[#3A2F0B] text-[#FFE08A]'}`}
+                    role="note"
+                >
+                    <Smartphone size={18} className="mt-px shrink-0" aria-hidden="true" />
+                    <span>{t(screenOn ? 'captain.screenOn' : 'captain.keepOpen')}</span>
+                </div>
+            ) : null}
+            {online && awayMs >= AWAY_NOTICE_MS ? (
+                <div className="flex items-start gap-3 rounded-[14px] bg-volt px-4 py-3 text-ink" role="alert">
+                    <span className="flex-1 text-sm font-semibold leading-snug">{t('captain.wasAway', { minutes: Math.max(1, Math.round(awayMs / 60000)) })}</span>
+                    <button type="button" onClick={clearAway} aria-label={t('account.cancel')} className="-mr-2 -mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full">
+                        <X size={18} aria-hidden="true" />
+                    </button>
+                </div>
+            ) : null}
+
+            {captain && !captain.phone ? (
+                <button
+                    type="button"
+                    onClick={() => setSettingsOpen(true)}
+                    className="flex min-h-14 items-center gap-3 rounded-[14px] bg-night-card px-4 py-3 text-left text-sm font-semibold"
+                >
+                    <Phone size={20} className="shrink-0 text-volt" aria-hidden="true" />
+                    <span className="flex-1">{t('captain.phoneMissing')}</span>
+                    <ChevronRight size={20} aria-hidden="true" />
+                </button>
+            ) : null}
+
+            {strikes > 0 && !captain?.suspended ? (
+                <p className="rounded-[14px] bg-night-card px-4 py-2.5 text-xs font-semibold text-[#FFB4B7]">{t('captain.strikes', { count: strikes })}</p>
+            ) : null}
+
+            <div className="flex items-center gap-3 rounded-[18px] bg-night-card p-3">
+                <VehicleArt art={meta.art} width={76} className="rounded-xl bg-paper p-1" />
+                <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
+                    <strong className="truncate text-base font-semibold">{displayName}</strong>
+                    <NumberPlate plate={vehicle.plate} />
+                </div>
+                <button
+                    type="button"
+                    onClick={() => setSettingsOpen(true)}
+                    aria-label={t('captain.safetySettings')}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-night text-white"
+                >
+                    <ShieldCheck size={20} aria-hidden="true" />
+                </button>
             </div>
+
+            <div className="grid grid-cols-3 gap-2">
+                {statTiles.map((stat) => (
+                    <div key={stat.label} className="flex flex-col gap-1 rounded-[18px] bg-night-card p-3">
+                        <span className="text-[11px] text-night-muted">{stat.label}</span>
+                        <strong className="font-display text-xl font-semibold">{stat.value}</strong>
+                    </div>
+                ))}
+            </div>
+
+            {error ? <p className="text-xs text-[#FF8A8F]">{error}</p> : null}
+
+            <nav aria-label={t('legal.support')} className="flex flex-wrap justify-center gap-x-5 gap-y-1 pt-1 text-xs text-night-muted">
+                <Link to="/support" className="underline underline-offset-4">
+                    {t('legal.support')}
+                </Link>
+                <Link to="/terms" className="underline underline-offset-4">
+                    {t('legal.terms')}
+                </Link>
+                <Link to="/privacy" className="underline underline-offset-4">
+                    {t('legal.privacy')}
+                </Link>
+            </nav>
+
+            {settingsOpen ? <CaptainSafetySettings open onClose={() => setSettingsOpen(false)} /> : null}
         </div>
     );
-}
+};
 
 export default CaptainDetails;

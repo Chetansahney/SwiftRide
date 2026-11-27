@@ -1,110 +1,152 @@
-const axios = require("axios");
+const geo = require('./geo');
 const captainModel = require('../models/captain.models');
-module.exports.getLocationCoordinates = async (address) => {
-	if (!address || typeof address !== "string") {
-		throw new Error("Address is required.");
-	}
+const { currentShiftWindow } = require('../utils/shiftWindow');
+const { CONFIRMED_WOMAN_FILTER } = require('../utils/womenSafety');
 
-	const apiKey = process.env.GOOGLE_MAPS_API;
-	if (!apiKey) {
-		throw new Error("GOOGLE_MAPS_API is not set.");
-	}
+// "22.5726,88.3639" — the rider's current location sent as a pickup.
+const COORDINATE_PAIR = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/;
+module.exports.COORDINATE_PAIR = COORDINATE_PAIR;
 
-	const url = "https://maps.googleapis.com/maps/api/geocode/json";
-
-	const response = await axios.get(url, {
-		params: {
-			address: address.trim(),
-			key: apiKey,
-		},
-	});
-
-	const data = response.data;
-	if (!data || data.status !== "OK" || !Array.isArray(data.results) || data.results.length === 0) {
-		const status = data && data.status ? data.status : "UNKNOWN_ERROR";
-		throw new Error(`Unable to geocode address. Status: ${status}`);
-	}
-
-	const location = data.results[0].geometry.location;
-	return {
-		latitude: location.lat,
-		longitude: location.lng,
-	};
-};
-module.exports.getDistanceTime = async (origin, destination) => {
-    if (!origin || !destination) {
-        throw new Error("Origin and destination are required.");
-    }
-    const apiKey = process.env.GOOGLE_MAPS_API;
-    if (!apiKey) {
-        throw new Error("GOOGLE_MAPS_API is not set.");
-    }
-    const url = "https://maps.googleapis.com/maps/api/distancematrix/json";
-    const response = await axios.get(url, {
-        params: {
-            origins: origin.trim(),
-            destinations: destination.trim(),
-            key: apiKey,
-        },
-    });
-    const data = response.data;
-    if (!data || data.status !== "OK" || !Array.isArray(data.rows) || data.rows.length === 0) {
-        const status = data && data.status ? data.status : "UNKNOWN_ERROR";
-        throw new Error(`Unable to calculate distance and time. Status: ${status}`);
-    }
-    const element = data.rows[0].elements[0];
-    if (element.status !== "OK") {
-        throw new Error(`Unable to calculate distance and time. Element status: ${element.status}`);
-    }
+// Captains only get rides if they're not paused for review, passed identity
+// verification, and their face check for the current shift window
+// (6 AM–2 PM, 2 PM–10 PM, 10 PM–6 AM India time) matched.
+function dispatchableFilter() {
     return {
-        distance: element.distance.text,
-        duration: element.duration.text,
+        suspended: { $ne: true },
+        // Online right now: app connected, sent a location in the last 2 minutes, not on a ride.
+        status: 'available',
+        socketId: { $ne: null },
+        lastSeenAt: { $gte: new Date(Date.now() - 2 * 60 * 1000) },
+        'verification.status': 'verified',
+        'shiftSelfie.windowId': currentShiftWindow().id,
+        'shiftSelfie.status': 'verified',
     };
 }
-module.exports.getSuggestions = async (input) => {
-    if (!input || typeof input !== "string") {
-        throw new Error("Input is required.");
-    }
-    const apiKey = process.env.GOOGLE_MAPS_API; 
-    if (!apiKey) {
-        throw new Error("GOOGLE_MAPS_API is not set.");
-    }
-    const url = "https://maps.googleapis.com/maps/api/place/autocomplete/json";
-    const response = await axios.get(url, {
-        params: {   
-            input: input.trim(),
-            key: apiKey,
-        },  
-    });
-    const data = response.data;
-    if (!data || data.status !== "OK" || !Array.isArray(data.predictions)) {
-        const status = data && data.status ? data.status : "UNKNOWN_ERROR";
-        throw new Error(`Unable to fetch suggestions. Status: ${status}`);
-    }
-    return data.predictions.map(prediction => ({
-        description: prediction.description,
-        place_id: prediction.place_id,
-    }));
-}
+module.exports.dispatchableFilter = dispatchableFilter;
 
+const toPoint = (value) => {
+    const pair = String(value || '').match(COORDINATE_PAIR);
+    return pair ? { lat: parseFloat(pair[1]), lng: parseFloat(pair[2]) } : null;
+};
+
+// Address or "lat,lng" -> { latitude, longitude }. Uses free OpenStreetMap search.
+module.exports.getLocationCoordinates = async (address, near) => {
+    if (!address || typeof address !== 'string') throw new Error('Address is required.');
+    const point = toPoint(address);
+    if (point) return { latitude: point.lat, longitude: point.lng };
+    const place = await geo.geocode(address, near);
+    if (!place) throw new Error('Unable to find that place.');
+    return { latitude: place.lat, longitude: place.lng };
+};
+
+const formatKm = (meters) => (meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1)} km`);
+function formatDuration(seconds) {
+    const minutes = geo.etaMinutes(seconds);
+    if (minutes < 60) return `${minutes} min${minutes === 1 ? "" : "s"}`;
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    return `${hours} hour${hours > 1 ? 's' : ''}${rest ? ` ${rest} mins` : ''}`;
+}
+module.exports.formatDuration = formatDuration;
+
+// Road distance and traffic-adjusted time between two places.
+module.exports.getDistanceTime = async (origin, destination, near) => {
+    if (!origin || !destination) throw new Error('Origin and destination are required.');
+    const [from, to] = await Promise.all([
+        module.exports.getLocationCoordinates(origin, near),
+        module.exports.getLocationCoordinates(destination, near),
+    ]);
+    const result = await geo.route({ lat: from.latitude, lng: from.longitude }, { lat: to.latitude, lng: to.longitude });
+    return {
+        distance: formatKm(result.distanceM),
+        duration: formatDuration(result.durationS),
+        distanceM: result.distanceM,
+        durationS: result.durationS,
+        estimated: result.estimated,
+    };
+};
+
+// Road line to draw on the map, between two places (addresses or "lat,lng").
+module.exports.getRoute = async (origin, destination, near, prefer = 'shortest') => {
+    const [from, to] = await Promise.all([
+        module.exports.getLocationCoordinates(origin, near),
+        module.exports.getLocationCoordinates(destination, near),
+    ]);
+    const result = await geo.route({ lat: from.latitude, lng: from.longitude }, { lat: to.latitude, lng: to.longitude }, { prefer });
+    return {
+        from: { lat: from.latitude, lng: from.longitude },
+        to: { lat: to.latitude, lng: to.longitude },
+        coordinates: result.coordinates,
+        distance: formatKm(result.distanceM),
+        duration: formatDuration(result.durationS),
+        distanceM: result.distanceM,
+        durationS: result.durationS,
+    };
+};
+
+// Place suggestions while typing, nearest to the rider first.
+module.exports.getSuggestions = async (input, near) => {
+    if (!input) throw new Error('Input is required.');
+    return geo.suggest(input, near);
+};
+
+module.exports.reverseGeocode = (lat, lng) => geo.reverse(lat, lng);
 
 module.exports.getCaptainsNearby = async (latitude, longitude, radius) => {
-    console.log('Searching near:', longitude, latitude, 'radius:', radius);
-    
-    // Check ALL captains and their locations
-    const allCaptains = await captainModel.find({});
-    console.log('Total captains:', allCaptains.length);
-    allCaptains.forEach(c => {
-        console.log('Captain:', c.email, 'Location:', JSON.stringify(c.location));
-    });
-
-    const captains = await captainModel.find({
+    return captainModel.find({
+        ...dispatchableFilter(),
         location: {
             $geoWithin: {
                 $centerSphere: [[longitude, latitude], radius / 6371]
             }
         }
     });
-    console.log('Nearby found:', captains.length);
-    return captains;
 };
+
+// How many captains who could take a ride are within `meters` of a point —
+// used to tell whether a drop is somewhere drivers usually return from empty.
+module.exports.countCaptainsNear = async (latitude, longitude, meters) => {
+    return captainModel.countDocuments({
+        ...dispatchableFilter(),
+        location: {
+            $geoWithin: {
+                $centerSphere: [[longitude, latitude], meters / 6371000]
+            }
+        }
+    });
+};
+
+const { distanceInMeters } = geo;
+module.exports.distanceInMeters = distanceInMeters;
+
+// Distance in metres to the closest captain of each vehicle type within maxMeters
+// of a point, e.g. { moto: 210, auto: 480 }. Types with nobody nearby are left out.
+// With womenOnly, only women captains are counted.
+module.exports.getNearestCaptainsByType = async (latitude, longitude, maxMeters = 5000, { womenOnly = false } = {}) => {
+    const captains = await captainModel
+        .find({
+            ...dispatchableFilter(),
+            ...(womenOnly ? CONFIRMED_WOMAN_FILTER : {}),
+            location: {
+                $near: {
+                    $geometry: { type: 'Point', coordinates: [longitude, latitude] },
+                    $maxDistance: maxMeters,
+                },
+            },
+        })
+        .select('vehicle.vehicleType location')
+        .limit(100);
+
+    const nearest = {};
+    for (const captain of captains) {
+        const rawType = captain.vehicle?.vehicleType;
+        const type = rawType === 'bike' ? 'moto' : rawType;
+        if (!type || nearest[type] !== undefined) continue;
+        const [lng, lat] = captain.location.coordinates;
+        nearest[type] = Math.round(distanceInMeters(latitude, longitude, lat, lng));
+    }
+    return nearest;
+};
+
+// Nearest Metro station (or railway station) to a point, or null.
+module.exports.getNearestTransit = (latitude, longitude) => geo.nearestStation(latitude, longitude);

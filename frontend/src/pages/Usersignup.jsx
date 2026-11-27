@@ -1,116 +1,105 @@
 import React, { useState } from 'react';
-import { Link,useNavigate } from 'react-router-dom';
-import axios from 'axios'   ;
-import {UserDataContext} from '../context/UserContext';
-
+import { Link, useNavigate } from 'react-router-dom';
+import axios from 'axios';
+import { UserDataContext } from '../context/UserContext';
+import AuthLayout, { FormError } from '../components/ui/AuthLayout';
+import PhoneField from '../components/ui/PhoneField';
+import ConsentCheckbox from '../components/ui/ConsentCheckbox';
+import { useLanguage } from '../i18n/LanguageContext';
+import { isIndianMobile, normalizePhone } from '../lib/config';
 
 const Usersignup = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [userData, setUserData] = useState({});
+    const { t } = useLanguage();
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [firstName, setFirstName] = useState('');
+    const [lastName, setLastName] = useState('');
+    const [phone, setPhone] = useState('');
+    const [agreed, setAgreed] = useState(false);
+    const [error, setError] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+    const navigate = useNavigate();
+    const { setUser } = React.useContext(UserDataContext);
 
-const navigate=useNavigate();
-const {user, setUser} = React.useContext(UserDataContext);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    // The keys here must match your Mongoose Schema exactly
-    const newUser = {
-      name: {
-        firstname: firstName, // lowercase 'n' in firstname
-        lastname: lastName    // lowercase 'n' in lastname
-      },
-      email: email,
-      password: password
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!isIndianMobile(phone)) {
+            setError(t('auth.phoneInvalid'));
+            return;
+        }
+        if (!agreed) {
+            setError(t('auth.mustAgree'));
+            return;
+        }
+        setError('');
+        setSubmitting(true);
+        const newUser = {
+            name: { firstname: firstName, lastname: lastName },
+            email,
+            phone: normalizePhone(phone),
+            password,
+        };
+        try {
+            const response = await axios.post(`${import.meta.env.VITE_BASE_URL}/users/register`, newUser);
+            if (response.status === 201) {
+                setUser(response.data.user);
+                localStorage.setItem('userToken', response.data.token);
+                navigate('/home');
+                return;
+            }
+        } catch (err) {
+            console.error('Signup failed:', err.response?.data);
+            setError(err.response?.data?.errors?.[0]?.msg || t('auth.signupFailed'));
+        } finally {
+            setSubmitting(false);
+        }
     };
 
-    try {
-      const response = await axios.post(`${import.meta.env.VITE_BASE_URL}/users/register`, newUser);
-
-      if (response.status === 201) {
-          const data = response.data;
-          setUser(data.user);
-          // Don't forget to save the token!
-          localStorage.setItem('userToken', data.token); 
-          navigate('/home');
-      }
-    } catch (error) {
-      // This will help you see if it's the 3-character limit or email validation
-      console.log("Detailed Error:", error.response?.data);
-    }
-
-    // Resetting fields
-    setEmail('');
-    setFirstName('');
-    setLastName('');
-    setPassword('');
-};
-  return (
-    <div>
-      <div className='p-7 h-screen flex flex-col justify-between'>
-        <div>
-          <img className='w-16 mb-10' src="/Uber_logo_2018.png" alt="Uber Logo" />
-
-          <form onSubmit={(e) => handleSubmit(e)}>
-            <h3 className='text-lg font-medium mb-2'>What's your name?</h3>
-            <div className='flex gap-4 mb-6'>
-              <input
-                required
-                className='bg-[#eeeeee] w-1/2 rounded-lg px-4 py-2 border text-lg placeholder:text-base'
-                type="text"
-                placeholder='First name'
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-              />
-              <input
-                required
-                className='bg-[#eeeeee] w-1/2 rounded-lg px-4 py-2 border text-lg placeholder:text-base'
-                type="text"
-                placeholder='Last name'
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-              />
-            </div>
-
-            <h3 className='text-lg font-medium mb-2'>What's your email?</h3>
-            <input
-              required
-              className='bg-[#eeeeee] mb-6 rounded-lg px-4 py-2 border w-full text-lg placeholder:text-base'
-              type="email"
-              placeholder='email@example.com'
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-
-            <h3 className='text-lg font-medium mb-2'>Enter Password</h3>
-            <input
-              required
-              className='bg-[#eeeeee] mb-6 rounded-lg px-4 py-2 border w-full text-lg placeholder:text-base'
-              type="password"
-              placeholder='password'
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-
-            <button className='bg-[#111] text-white font-semibold mb-3 rounded-lg px-4 py-2 w-full text-lg'>
-              Create account
-            </button>
-          </form>
-
-          <p className='text-center'>Already have a account? <Link to='/Userlogin' className='text-blue-600'>Login here</Link></p>
-        </div>
-
-        <div>
-          <p className='text-[10px] leading-tight text-gray-500'>
-            By proceeding, you consent to get calls, WhatsApp or SMS messages, including by automated means, from Uber and its affiliates to the number provided.
-          </p>
-        </div>
-      </div>
-    </div>
-  );
+    return (
+        <AuthLayout title={t('auth.signupTitle')} footerLink={{ to: '/captainsignup', label: t('auth.asCaptain') }}>
+            <form onSubmit={handleSubmit} className="flex flex-col">
+                <FormError message={error} />
+                <div className="mb-5 grid grid-cols-2 gap-3">
+                    <div>
+                        <label className="label" htmlFor="firstName">
+                            {t('auth.firstName')}
+                        </label>
+                        <input id="firstName" required minLength={3} className="field" type="text" autoComplete="given-name" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+                    </div>
+                    <div>
+                        <label className="label" htmlFor="lastName">
+                            {t('auth.lastName')}
+                        </label>
+                        <input id="lastName" className="field" type="text" autoComplete="family-name" value={lastName} onChange={(e) => setLastName(e.target.value)} />
+                    </div>
+                </div>
+                <label className="label" htmlFor="email">
+                    {t('auth.email')}
+                </label>
+                <input id="email" required className="field mb-5" type="email" autoComplete="email" placeholder="email@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <label className="label" htmlFor="phone">
+                    {t('auth.phone')}
+                </label>
+                <PhoneField id="phone" required value={phone} onChange={setPhone} describedBy="phoneHint" />
+                <span id="phoneHint" className="mb-5 mt-1.5 text-xs text-muted">{t('auth.phoneHintRider')}</span>
+                <label className="label" htmlFor="password">
+                    {t('auth.password')}
+                </label>
+                <input id="password" required minLength={8} maxLength={72} pattern="(?=.*[A-Za-z])(?=.*\d).{8,72}" title={t('auth.passwordHint')} aria-describedby="passwordHint" className="field" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                <span id="passwordHint" className="mb-6 mt-1.5 text-xs text-muted">{t('auth.passwordHint')}</span>
+                <ConsentCheckbox checked={agreed} onChange={setAgreed} />
+                <button className="btn-primary" disabled={submitting}>
+                    {submitting ? t('loading') : t('auth.signup')}
+                </button>
+                <p className="mt-5 text-center text-sm text-muted">
+                    {t('auth.haveAccount')}{' '}
+                    <Link to="/Userlogin" className="font-semibold text-ink underline underline-offset-4">
+                        {t('auth.loginHere')}
+                    </Link>
+                </p>
+            </form>
+        </AuthLayout>
+    );
 };
 
 export default Usersignup;

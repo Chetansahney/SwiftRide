@@ -1,63 +1,39 @@
 const mapservice = require('../services/maps.services');
-const { validationResult } = require('express-validator');
 
-module.exports.getcoordinates = async (req, res,next) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-    }
-    const { address } = req.query;
-
-    try {   
-        if (!address) {
-            return res.status(400).json({ error: "Address query parameter is required." });
-        }
-        const coordinates = await mapservice.getLocationCoordinates(address);
-        res.json(coordinates);
-    }
-    catch (error) {
-        console.error("Error in getcoordinates controller:", error);
-        res.status(500).json({ error: "An error occurred while fetching coordinates." });
-    }
-
+// Optional nearLat/nearLng (the rider's position) to rank nearby places first.
+function nearFrom(query) {
+    const lat = parseFloat(query.nearLat);
+    const lng = parseFloat(query.nearLng);
+    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : undefined;
 }
+
+module.exports.getcoordinates = async (req, res) => {
+    res.json(await mapservice.getLocationCoordinates(req.query.address, nearFrom(req.query)));
+};
 
 module.exports.getDistanceTime = async (req, res) => {
-    const errors = validationResult(req);
+    res.json(await mapservice.getDistanceTime(req.query.origin, req.query.destination, nearFrom(req.query)));
+};
 
-    if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-    }
-    const { origin, destination } = req.query;
-
-    try {
-        if (!origin || !destination) {
-            return res.status(400).json({ error: "Origin and destination query parameters are required." });
-        }
-        const result = await mapservice.getDistanceTime(origin, destination);
-        res.json(result);
-    }
-    catch (error) {
-        console.error("Error in getDistanceTime controller:", error);
-        res.status(500).json({ error: "An error occurred while fetching distance and time." });
-    }
-}
+module.exports.getRoute = async (req, res) => {
+    // "fastest" for a captain heading to a pickup (that is the ETA riders see);
+    // the default is the shortest sensible route (the rider's trip and fare).
+    const prefer = req.query.prefer === 'fastest' ? 'fastest' : 'shortest';
+    res.json(await mapservice.getRoute(req.query.origin, req.query.destination, nearFrom(req.query), prefer));
+};
 
 module.exports.getSuggestions = async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-    }
-    const { input } = req.query;
-    try {
-        if (!input) {
-            return res.status(400).json({ error: "Input query parameter is required." });
-        }
-        const suggestions = await mapservice.getSuggestions(input);
-        res.json(suggestions);
-    }
-    catch (error) {
-        console.error("Error in getSuggestions controller:", error);
-        res.status(500).json({ error: "An error occurred while fetching suggestions." });
-    }
-}
+    res.json(await mapservice.getSuggestions(req.query.input, nearFrom(req.query)));
+};
+
+// Readable address for a GPS position (the "current location" pickup).
+module.exports.reverseGeocode = async (req, res) => {
+    const address = await mapservice.reverseGeocode(parseFloat(req.query.lat), parseFloat(req.query.lng));
+    res.json({ address });
+};
+
+// Nearest Metro station (or railway station where a city has no Metro), for the
+// one-tap "Nearest Metro" shortcut on the rider home screen.
+module.exports.getNearestTransit = async (req, res) => {
+    res.json(await mapservice.getNearestTransit(parseFloat(req.query.lat), parseFloat(req.query.lng)));
+};

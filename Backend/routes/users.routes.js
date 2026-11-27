@@ -1,22 +1,47 @@
-const express=require('express');
-const router=express.Router();
-//express-validator is used to validate the data coming from the client side from frontend
-const {body}=require('express-validator');
-const userController=require('../controllers/user.controllers');
-const authMiddleware=require('../middleware/auth.middleware');
+const express = require('express');
+const { body } = require('express-validator');
+const userController = require('../controllers/user.controllers');
+const { authUser } = require('../middleware/auth.middleware');
+const { authLimiter } = require('../middleware/security.middleware');
+const { passwordRule, emailRule, nameRule, phoneRule, normalizePhone, loginRules, validate } = require('../utils/validators');
 
+const router = express.Router();
 
-//validating the data coming from the client side using express-validator and then calling the register function from userController to register the user in the database. We are validating the name.firstname, email and password fields and if any of the validation fails then we are sending the error message to the client side. If all the validation passes then we are calling the register function from userController to register the user in the database.
-router.post('/register',[body('name.firstname').isLength({min:3}).withMessage("firstname should be at least 3 characters long"),
-body('email').isEmail().withMessage("Please enter a valid email address"),
-body('password').isLength({min:6}).withMessage("Password should be at least 6 characters long")],userController.register);
+router.post('/register', authLimiter, nameRule('name.firstname'), nameRule('name.lastname', { optional: true }), emailRule(), phoneRule(), passwordRule(), validate, userController.register);
+router.post('/login', authLimiter, loginRules, validate, userController.login);
 
-//login route is used to login the user and it takes the email and password from the client side and validates them using express-validator. If the validation fails then it sends the error message to the client side. If the validation passes then it calls the login function from userController to login the user in the database.
-router.post('/login',[body('email').isEmail().withMessage("Not a valid email address"),
-    body('password').isLength({min:6}).withMessage("Password should be at least 6 characters long")],userController.login);
+router.get('/profile', authUser, userController.getUserProfile);
+router.patch('/profile', authUser, nameRule('name.firstname', { optional: true }), nameRule('name.lastname', { optional: true }), emailRule().optional(), phoneRule('phone', { optional: true }), validate, userController.updateUserProfile);
+router.delete('/profile', authUser, userController.deleteAccount);
 
+// POST is the safe method; GET stays for the existing app until it's updated.
+router.post('/logout', authUser, userController.logout);
+router.get('/logout', authUser, userController.logout);
+router.post('/logout-all', authUser, userController.logoutAll);
+router.post('/password', authLimiter, authUser, body('currentPassword').isString().isLength({ min: 1, max: 72 }), passwordRule('newPassword'), validate, userController.changePassword);
 
-router.get('/profile',authMiddleware.authUser,userController.getUserProfile);
-router.get('/logout',authMiddleware.authUser,userController.logout);
+const placeText = (field) => body(field).optional({ values: 'falsy' }).isString().trim().isLength({ max: 200 });
+router.put('/places',
+    authUser,
+    placeText('home'),
+    placeText('work'),
+    body('custom').optional().isArray({ max: 10 }).withMessage('Up to 10 saved places'),
+    body('custom.*.id').isString().matches(/^[a-z0-9]{1,20}$/i),
+    body('custom.*.label').isString().trim().isLength({ min: 1, max: 30 }),
+    body('custom.*.address').isString().trim().isLength({ min: 1, max: 200 }),
+    validate,
+    userController.updatePlaces
+);
 
-module.exports=router;
+router.patch('/safety',
+    authUser,
+    body('trustedContacts').optional().isArray({ max: 3 }).withMessage('You can add up to 3 trusted contacts'),
+    body('trustedContacts.*.name').isString().trim().notEmpty().withMessage('Contact name is required').isLength({ max: 40 }),
+    body('trustedContacts.*.phone').customSanitizer(normalizePhone).matches(/^[6-9]\d{9}$/).withMessage('Enter a 10-digit Indian mobile number'),
+    body('safetyPrefs.travellingAsWoman').optional().isBoolean(),
+    body('safetyPrefs.shareAtNight').optional().isBoolean(),
+    validate,
+    userController.updateSafety
+);
+
+module.exports = router;

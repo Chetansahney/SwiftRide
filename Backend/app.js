@@ -1,35 +1,62 @@
-const dotenv=require('dotenv');
+const dotenv = require('dotenv');
 dotenv.config();
-const cors=require('cors');
 const express = require('express');
-const app= express();
-const connectToDB=require('./db/db');
-connectToDB();
-const userRoutes=require('./routes/users.routes');
-const cookieParser=require('cookie-parser');
-const captainRoutes=require('./routes/captain.routes');
-const mapsRoutes=require('./routes/maps.routes');
-const rideRoutes=require('./routes/ride.routes');
+const { env, checkEnv } = require('./config/env');
+const { securityHeaders, corsPolicy, apiLimiter, rejectOperatorInjection } = require('./middleware/security.middleware');
+const connectToDB = require('./db/db');
+const { HttpError } = require('./utils/httpError');
+const userRoutes = require('./routes/users.routes');
+const captainRoutes = require('./routes/captain.routes');
+const mapsRoutes = require('./routes/maps.routes');
+const rideRoutes = require('./routes/ride.routes');
+const adminRoutes = require('./routes/admin.routes');
 
+checkEnv();
+if (!env.isTest) connectToDB();
 
-app.use(express.json());
+const app = express();
 
-app.use(express.urlencoded({extended:true}));
+// Render / Vercel sit behind one proxy: needed for correct client IPs in rate limits.
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
 
-app.use(cors());//jab hume apne domain se request aaegi toh yaha pe cors ke andr hum domain name daaldenge taaki aur kisi donmain se request accept na hoye
+app.use(securityHeaders);
+app.use(corsPolicy);
+app.use(apiLimiter);
 
-app.use(cookieParser());//to parse the cookies from the request headers and make it available in req.cookies object
+// Identity verification sends a licence photo and three selfies; shift checks two.
+app.use(['/captains/verification', '/captains/shift-selfie'], express.json({ limit: '4mb' }));
+// 1 MB so captains can upload a compressed shift selfie.
+app.use(express.json({ limit: '1mb' }));
+app.use(rejectOperatorInjection);
 
-app.get('/',(req,res)=>{
-    res.send("Hello World");
+app.get('/', (req, res) => {
+    res.json({ name: 'SwiftRide API', status: 'ok' });
+});
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok', uptime: Math.round(process.uptime()) });
 });
 
-app.use('/users',userRoutes);//yaha pe humne userRoutes ko use kiya hai taaki jab bhi /users route pe request aayegi toh yeh userRoutes ke andar jaake dekhega ki waha pe konsa route match ho raha hai aur uske according response dega
+app.use('/users', userRoutes);
+app.use('/captains', captainRoutes);
+app.use('/maps', mapsRoutes);
+app.use('/rides', rideRoutes);
+app.use('/admin', adminRoutes);
 
-app.use('/captains',captainRoutes);//yaha pe humne captainRoutes ko use kiya hai taaki jab bhi /captains route pe request aayegi toh yeh captainRoutes ke andar jaake dekhega ki waha pe konsa route match ho raha hai aur uske according response dega
+app.use((req, res) => {
+    res.status(404).json({ message: 'Not found' });
+});
 
-app.use('/maps',mapsRoutes);//yaha pe humne mapsRoutes ko use kiya hai taaki jab bhi /maps route pe request aayegi toh yeh mapsRoutes ke andar jaake dekhega ki waha pe konsa route match ho raha hai aur uske according response dega
+// One place for unexpected errors: log the details, send the client nothing internal.
+// eslint-disable-next-line no-unused-vars
+app.use((error, req, res, next) => {
+    if (error instanceof HttpError) return res.status(error.status).json({ message: error.message, error: error.message, ...error.extra });
+    if (error.type === 'entity.too.large') return res.status(413).json({ message: 'That upload is too large.' });
+    if (error.type === 'entity.parse.failed') return res.status(400).json({ message: 'Invalid request.' });
+    if (error.name === 'CastError') return res.status(404).json({ message: 'Not found' });
+    if (error.name === 'ValidationError') return res.status(400).json({ message: 'Some details are invalid.' });
+    console.error(`[error] ${req.method} ${req.path}:`, error);
+    res.status(500).json({ message: 'Something went wrong. Please try again.' });
+});
 
-app.use('/rides',rideRoutes);//yaha pe humne rideRoutes ko use kiya hai taaki jab bhi /rides route pe request aayegi toh yeh rideRoutes ke andar jaake dekhega ki waha pe konsa route match ho raha hai aur uske according response dega
-
-module.exports = app;// to use this app in anyu other files we want
+module.exports = app;

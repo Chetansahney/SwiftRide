@@ -1,98 +1,112 @@
-import React from "react";
+import React, { useEffect, useState } from 'react';
+import RouteSummary from './RouteSummary';
+import WomanIcon from './ui/WomanIcon';
+import { useLanguage } from '../i18n/LanguageContext';
+import { FEATURES, fareBreakdown, formatFare } from '../lib/config';
 
 const RidePopUp = (props) => {
-    const pickup = props.pickup || "562/11-A";
-    const pickupDetail = props.pickupDetail || "Kankariya Talab, Ahmedabad";
-    const destination = props.destination || "102/B";
-    const destinationDetail = props.destinationDetail || "Phoenix Marketcity, Bengaluru";
-    const fare = props.fare;
-    const distanceTime = props.distanceTime;
-    const distance = props.distance;
+    const { t } = useLanguage();
     const rider = props.user;
+    const riderName = rider?.name?.firstname || t('captain.rider');
+    const split = FEATURES.fareSplit ? fareBreakdown(props.fare, props.ride?.fareBreakdown) : null;
+    const returnFee = Number(props.ride?.fareBreakdown?.returnFee) || 0;
+    const distanceLabel = props.distanceTime?.distance || props.distance;
+    const offer = props.ride?.offer;
+    const [now, setNow] = useState(() => Date.now());
+    const [accepting, setAccepting] = useState(false);
+    const secondsLeft = offer?.expiresAt ? Math.max(0, Math.ceil((new Date(offer.expiresAt).getTime() - now) / 1000)) : null;
+    const pickupDistance = offer?.distanceM != null ? (offer.distanceM < 1000 ? `${offer.distanceM} m` : `${(offer.distanceM / 1000).toFixed(1)} km`) : null;
 
-    const riderFirstName = rider?.name?.firstname || "";
-    const riderLastName = rider?.name?.lastname || "";
-    const riderName = [riderFirstName, riderLastName].filter(Boolean).join(" ") || "Rider";
+    // Live countdown; when the offer runs out the card closes by itself.
+    useEffect(() => {
+        if (!offer?.expiresAt) return undefined;
+        const timer = setInterval(() => setNow(Date.now()), 500);
+        return () => clearInterval(timer);
+    }, [offer?.expiresAt]);
+    const { onExpired } = props;
+    useEffect(() => {
+        if (secondsLeft === 0 && !accepting) onExpired?.();
+    }, [secondsLeft, accepting, onExpired]);
 
-    const fareLabel = fare || fare === 0 ? `₹${fare}` : "₹--";
-    const distanceLabel = distanceTime?.distance || distance || "--";
     return (
-        <div >
-    
-    <div className="flex items-center justify-center gap-3 mb-6">
-        <h3 className="text-2xl font-extrabold tracking-tight text-gray-800">New Ride Request</h3>
-        <div className="flex items-center">
-            <span className="relative flex h-3 w-3">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-yellow-500"></span>
-            </span>
-        </div>
-    </div>
-
-    
-    <div className='flex items-center justify-between mb-6 bg-gray-50 p-4 rounded-2xl'>
-        <div className='flex items-center gap-3'>
-            <div className='h-14 w-14 rounded-full overflow-hidden border-2 border-white shadow-md'>
-                <img
-                    className='h-full w-full object-cover'
-                    src="user.webp"
-                    alt="Rider"
-                />
+        <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+                <span className="inline-flex items-center gap-2 text-sm font-semibold">
+                    <span className="relative flex h-2.5 w-2.5" aria-hidden="true">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-volt opacity-75" />
+                        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-volt" />
+                    </span>
+                    {t('captain.newRequest')}
+                    {secondsLeft != null ? (
+                        <span className="rounded-full bg-volt px-2 py-0.5 font-display text-xs font-semibold text-ink" aria-label={t('captain.secondsLeft', { s: secondsLeft })}>
+                            {t('captain.secondsLeft', { s: secondsLeft })}
+                        </span>
+                    ) : null}
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-sm text-night-muted">
+                    {props.ride?.riderIsWoman ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-night-card px-2 py-0.5 text-xs font-semibold text-white">
+                            <WomanIcon size={13} className="text-volt" />
+                            {t('captain.womanRider')}
+                        </span>
+                    ) : null}
+                    {riderName}
+                </span>
             </div>
-            <div>
-                <h2 className='text-lg font-bold text-gray-900 leading-tight'>{riderName}</h2>
-                <p className='text-xs text-gray-500 font-medium'>⭐ 4.9 • {distanceLabel} away</p>
+
+            <div className="flex flex-col gap-0.5" aria-live="assertive">
+                <span className="text-[13px] text-night-muted">{split ? t('captain.youEarn') : t('captain.fare')}</span>
+                <strong className="font-display text-[56px] font-semibold leading-none tracking-tight text-volt">
+                    {formatFare(split ? split.driver : props.fare)}
+                </strong>
+                {split ? (
+                    <span className="text-[13px] text-night-muted">
+                        {t('captain.fare')}: {formatFare(split.total)}
+                        {distanceLabel ? ` · ${distanceLabel}` : ''}
+                    </span>
+                ) : null}
+                {returnFee > 0 ? (
+                    <span className="mt-1 text-[13px] font-semibold text-white">{t('captain.returnIncluded', { fee: formatFare(returnFee) })}</span>
+                ) : null}
             </div>
-        </div>
-        <div className='text-right'>
-            <h4 className='text-2xl font-black text-gray-900'>{fareLabel}</h4>
-            <p className='text-[10px] font-bold text-gray-400 tracking-widest uppercase'>{distanceLabel}</p>
-        </div>
-    </div>
 
-    
-    <div className='w-full relative px-2'>
-        
-        <div className="absolute left-[29px] top-10 bottom-10 w-[2px] bg-gray-100"></div>
+            {offer ? (
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                    {pickupDistance ? <span className="rounded-full bg-night-card px-3 py-1 font-semibold">{t('captain.pickupAway', { min: `${offer.estimated ? '~' : ''}${offer.etaMin}`, distance: pickupDistance })}</span> : null}
+                    {offer.riderRating ? <span className="rounded-full bg-night-card px-3 py-1 text-night-muted">{t('captain.riderRating', { rating: offer.riderRating.toFixed(1) })}</span> : null}
+                </div>
+            ) : null}
 
-        <div className='flex items-center gap-5 p-4 relative bg-white'>
-            <i className="text-xl ri-map-pin-user-fill text-gray-400"></i>
-            <div>
-                <h3 className='text-base font-bold text-gray-800'>{pickup}</h3>
-                <p className='text-sm text-gray-500'>{pickupDetail}</p>
-            </div>
-        </div>
+            <RouteSummary pickup={props.pickup} destination={props.destination} dark />
 
-        <div className='flex items-center gap-5 p-4 relative bg-white'>
-            <i className="text-xl ri-map-pin-2-fill text-gray-900"></i>
-            <div>
-                <h3 className='text-base font-bold text-gray-800'>{destination}</h3>
-                <p className='text-sm text-gray-500'>{destinationDetail}</p>
-            </div>
-        </div>
-    </div>
+            <p className="text-xs leading-relaxed text-night-muted">{t('captain.seeAll')} {t('captain.acceptAgree')}</p>
 
-    
-    <div className="flex flex-row gap-4 mt-8 w-full">
-        <button onClick={() => {
+            <div className="flex gap-2.5">
+                <button
+                    type="button"
+                    onClick={() => props.onDecline?.()}
+                    className="h-[60px] rounded-2xl border border-night-edge px-6 text-base font-medium text-white"
+                >
+                    {t('captain.decline')}
+                </button>
+                <button
+                    type="button"
+                    disabled={accepting}
+                    onClick={async () => {
+                        setAccepting(true);
+                        // Only move on to pickup once the server confirms this captain got the ride.
+                        const ok = await props.confirmride();
+                        setAccepting(false);
                         props.setRidePopUp(false);
+                        if (ok) props.setconfirmRidePopUp(true);
                     }}
-            className="flex-1 bg-gray-100 text-gray-600 text-lg font-bold py-4 rounded-2xl active:scale-95 transition-all"
-        >
-            Ignore
-        </button>
-        <button onClick={() => {
-                        props.confirmride();
-                        props.setRidePopUp(false);
-                        props.setconfirmRidePopUp(true);
-                    }}
-            className="flex-1 bg-yellow-500 text-black text-lg font-bold py-4 rounded-2xl shadow-lg shadow-yellow-200 active:scale-95 transition-all"
-        >
-            Accept
-        </button>
-    </div>
-</div>
+                    className="h-[60px] flex-1 rounded-2xl bg-volt text-[17px] font-semibold text-ink active:scale-[0.98] disabled:opacity-60"
+                >
+                    {accepting ? t('loading') : t('captain.accept')}
+                </button>
+            </div>
+        </div>
     );
-}
+};
 
 export default RidePopUp;

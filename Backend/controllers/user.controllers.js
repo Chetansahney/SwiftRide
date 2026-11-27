@@ -1,54 +1,105 @@
-const userModel=require('../models/user.models');
-const userService=require('../services/user.services');
-const {validationResult}=require('express-validator');
-const blacklistTokenModel=require('../models/blacklistTokens.model');
-module.exports.register=async (req,res)=>{
-    const errors=validationResult(req);//taking errors from the routes
-    if(!errors.isEmpty()){
-        return res.status(400).json({errors:errors.array()});//if there are errors then we are sending the error message to the client side
+const userModel = require('../models/user.models');
+const rideModel = require('../models/ride.model');
+const accounts = require('../services/account.services');
+
+const ACTIVE = ['requested', 'accepted', 'ongoing'];
+
+module.exports.register = async (req, res) => {
+    const { name, email, phone, password } = req.body;
+    try {
+        const user = await userModel.create({
+            name: { firstname: name.firstname, lastname: name.lastname || undefined },
+            email,
+            phone,
+            password: await userModel.hashPassword(password),
+        });
+        res.status(201).json({ user, token: user.generateAuthToken() });
+    } catch (error) {
+        if (accounts.isDuplicateKey(error)) {
+            return res.status(409).json({ message: 'An account with this email already exists. Please log in.' });
+        }
+        throw error;
     }
+};
 
-    const {name,email,password}=req.body;//taking the data from the client side
-    const hashedPassword=await userModel.hashPassword(password);//hashing the password before saving it to the database
+module.exports.login = async (req, res) => {
+    const user = await accounts.login(userModel, req.body.email, req.body.password);
+    if (!user) return res.status(401).json({ message: accounts.INVALID_LOGIN });
+    res.status(200).json({ user, token: user.generateAuthToken() });
+};
 
-    const user=await userService.createUser({firstname:name.firstname,lastname:name.lastname,email,password:hashedPassword});//creating a new user in the database using the createUser function from userService
-    const token=user.generateAuthToken();//generating a token for the user using the generateAuthToken function from userModel
-    res.status(201).json({user,token});//sending the user object and token to the client side
-}
+module.exports.getUserProfile = (req, res) => {
+    res.status(200).json(req.user);
+};
 
-//login route
+module.exports.logout = async (req, res) => {
+    await accounts.logout(req.token);
+    res.status(200).json({ message: 'Logged out successfully' });
+};
 
-module.exports.login=async(req,res,next)=>{
-    const errors=validationResult(req);//taking errors from the routes
-    if(!errors.isEmpty()){
-        return res.status(400).json({errors:errors.array()});//if there are errors then we are sending the error message to the client side
+// Signs out every device (e.g. after a lost phone).
+module.exports.logoutAll = async (req, res) => {
+    await accounts.logoutEverywhere(userModel, req.user._id);
+    res.status(200).json({ message: 'Logged out on all devices' });
+};
+
+module.exports.changePassword = async (req, res) => {
+    const user = await accounts.changePassword(userModel, req.user._id, req.body.currentPassword, req.body.newPassword);
+    if (!user) return res.status(400).json({ message: 'Current password is wrong' });
+    // Other devices are now logged out; this one gets a fresh token.
+    res.status(200).json({ message: 'Password changed', token: user.generateAuthToken() });
+};
+
+module.exports.updateUserProfile = async (req, res) => {
+    const { name, email, phone } = req.body;
+    const updates = {};
+    if (name?.firstname) updates['name.firstname'] = name.firstname;
+    if (name && 'lastname' in name) updates['name.lastname'] = name.lastname || undefined;
+    if (email) updates.email = email;
+    if (phone) updates.phone = phone;
+    try {
+        const user = await userModel.findByIdAndUpdate(req.user._id, { $set: updates }, { new: true, runValidators: true });
+        res.status(200).json(user);
+    } catch (error) {
+        if (accounts.isDuplicateKey(error)) {
+            return res.status(409).json({ message: 'This email is already used by another account' });
+        }
+        throw error;
     }
+};
 
-    const {email,password}=req.body;//taking the data from the client side
-    const isAlreadyExist=await userModel.findOne({email});//checking if the user with the given email already exists in the database
-    if(!isAlreadyExist){
-        return res.status(400).json({message:"User with this email does not exist"});//if the user does not exist then we are sending the error message to the client side
+// Permanently deletes the rider's account and ride history, and revokes the token.
+module.exports.deleteAccount = async (req, res) => {
+    if (await rideModel.exists({ user: req.user._id, status: { $in: ACTIVE } })) {
+        return res.status(409).json({ message: 'Finish or cancel your current ride first.' });
     }
-    const user=await userModel.findOne({email}).select('+password');//finding the user in the database using the email and selecting the password field to compare it with the hashed password
-    if(!user){
-        return res.status(401).json({error:"Invalid email or password"});//if the user is not found then we are sending the error message to the client side
-    }
-    const isMatch=await user.comparePassword(password);//comparing the password from the client side with the hashed password in the database using the comparePassword function from userModel
-    if(!isMatch){
-        return res.status(401).json({error:"Invalid email or password"});//if the password does not match then we are sending the error message to the client side
-    }
+    await rideModel.deleteMany({ user: req.user._id });
+    await userModel.findByIdAndDelete(req.user._id);
+    await accounts.logout(req.token);
+    res.status(200).json({ message: 'Account deleted' });
+};
 
-    const token=user.generateAuthToken();//generating a token for the user using the generateAuthToken function from userModel
-    res.status(200).json({user,token});//sending the user object and token to the client side
-}
-module.exports.getUserProfile=(req,res,next)=>{
-    res.status(200).json(req.user);//sending the user object to the client side
-    
-}
+// Replaces the rider's saved places (Home, Work, up to 10 named ones).
+module.exports.updatePlaces = async (req, res) => {
+    const { home, work, custom = [] } = req.body;
+    const savedPlaces = {
+        home: home || undefined,
+        work: work || undefined,
+        custom: custom.map(({ id, label, address }) => ({ id, label, address })),
+    };
+    const user = await userModel.findByIdAndUpdate(req.user._id, { $set: { savedPlaces } }, { new: true, runValidators: true });
+    res.status(200).json(user.savedPlaces);
+};
 
-module.exports.logout=async (req,res,next)=>{
-    res.clearCookie('token');
-    const token=req.cookies.token || req.headers.authorization.split(' ')[1];
-    await blacklistTokenModel.create({token});//blacklisting the token by saving it to the blacklistTokens collection in the database
-    res.status(200).json({message:"Logged out successfully"});
-}
+// Trusted contacts (up to 3) and safety preferences.
+module.exports.updateSafety = async (req, res) => {
+    const updates = {};
+    if (Array.isArray(req.body.trustedContacts)) {
+        updates.trustedContacts = req.body.trustedContacts.map(({ name, phone }) => ({ name, phone }));
+    }
+    const prefs = req.body.safetyPrefs || {};
+    if (typeof prefs.travellingAsWoman === 'boolean') updates['safetyPrefs.travellingAsWoman'] = prefs.travellingAsWoman;
+    if (typeof prefs.shareAtNight === 'boolean') updates['safetyPrefs.shareAtNight'] = prefs.shareAtNight;
+    const user = await userModel.findByIdAndUpdate(req.user._id, { $set: updates }, { new: true, runValidators: true });
+    res.status(200).json(user);
+};
