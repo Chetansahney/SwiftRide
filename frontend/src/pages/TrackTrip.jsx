@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import { Marker } from '@react-google-maps/api';
 import { ShieldAlert } from 'lucide-react';
-import BaseMap from '../components/ui/BaseMap';
+import BaseMap, { MapMarker } from '../components/ui/BaseMap';
 import VehicleArt from '../components/ui/VehicleArt';
 import NumberPlate from '../components/ui/NumberPlate';
 import RouteSummary from '../components/RouteSummary';
@@ -12,7 +11,6 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { LANGUAGES } from '../i18n/strings';
 import { API } from '../lib/api';
 import { vehicleMeta } from '../lib/config';
-import { markerIcons, useMapsLoader } from '../lib/maps';
 
 const REFRESH_MS = 10000;
 
@@ -21,7 +19,6 @@ const REFRESH_MS = 10000;
 export default function TrackTrip() {
     const { token } = useParams();
     const { t, lang } = useLanguage();
-    const { isLoaded } = useMapsLoader();
     const [trip, setTrip] = useState(null);
     const [error, setError] = useState(false);
 
@@ -48,15 +45,14 @@ export default function TrackTrip() {
     }, [token]);
 
     const locale = LANGUAGES.find((language) => language.code === lang)?.speech || 'en-IN';
-    const icons = isLoaded ? markerIcons() : {};
     const meta = vehicleMeta(trip?.captain?.vehicleType || 'car');
 
     return (
         <div className="flex h-full flex-col bg-paper">
             <div className="relative h-[45%] min-h-[240px] shrink-0">
                 <BaseMap center={trip?.location || trip?.dropPoint || undefined} zoom={15}>
-                    {trip?.location ? <Marker position={trip.location} icon={icons.vehicle} title={trip.captain?.firstname} /> : null}
-                    {trip?.dropPoint?.lat != null ? <Marker position={trip.dropPoint} icon={icons.drop} title="Drop" /> : null}
+                    {trip?.location ? <MapMarker position={trip.location} icon="vehicle" title={trip.captain?.firstname} /> : null}
+                    {trip?.dropPoint?.lat != null ? <MapMarker position={trip.dropPoint} icon="drop" title="Drop" /> : null}
                 </BaseMap>
                 <div className="absolute inset-x-5 top-6 z-20 flex items-center justify-between">
                     <span className="flex h-12 items-center rounded-full bg-white px-4 shadow-float">

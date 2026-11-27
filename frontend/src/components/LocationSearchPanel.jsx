@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { nearParams } from '../lib/maps';
 import { LocateFixed, MapPin } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
 
@@ -27,7 +28,7 @@ const LocationSearchPanel = ({
             try {
                 const token = localStorage.getItem('userToken');
                 const response = await axios.get(`${import.meta.env.VITE_BASE_URL}/maps/get-suggestions`, {
-                    params: { input: inputValue },
+                    params: { input: inputValue, ...nearParams() },
                     headers: { Authorization: `Bearer ${token}` },
                 });
                 setSuggestions(response.data);

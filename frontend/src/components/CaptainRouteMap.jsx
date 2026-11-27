@@ -1,7 +1,5 @@
-import { DirectionsRenderer, Marker } from '@react-google-maps/api';
-import { useEffect, useState } from 'react';
-import BaseMap from './ui/BaseMap';
-import { markerIcons, routeLineOptions, useGeolocation, useMapsLoader } from '../lib/maps';
+import BaseMap, { MapMarker, MapRoute } from './ui/BaseMap';
+import { useGeolocation, useRoute } from '../lib/maps';
 import { useLanguage } from '../i18n/LanguageContext';
 import { shortPlace } from '../lib/config';
 
@@ -9,45 +7,19 @@ import { shortPlace } from '../lib/config';
 // (mode "to-pickup") or to the drop (mode "to-destination").
 const CaptainRouteMap = ({ ride, mode, showBanner = true }) => {
     const { t } = useLanguage();
-    const [directions, setDirections] = useState(null);
     const captainLocation = useGeolocation();
-    const { isLoaded } = useMapsLoader();
-
     const toDrop = mode === 'to-destination';
+    // Exact points when the ride has them, else the address text.
+    const target = toDrop ? ride?.dropPoint?.lat != null ? ride.dropPoint : ride?.destination : ride?.pickupPoint?.lat != null ? ride.pickupPoint : ride?.origin;
     const routeTarget = toDrop ? ride?.destination : ride?.origin;
-    const hasLocation = Boolean(captainLocation);
-
-    useEffect(() => {
-        if (!isLoaded || !routeTarget || !hasLocation || !window.google) {
-            setDirections(null);
-            return;
-        }
-        const service = new window.google.maps.DirectionsService();
-        service.route(
-            { origin: captainLocation, destination: routeTarget, travelMode: window.google.maps.TravelMode.DRIVING },
-            (result, status) => {
-                if (status === window.google.maps.DirectionsStatus.OK) setDirections(result);
-            }
-        );
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isLoaded, routeTarget, hasLocation]);
-
-    const icons = isLoaded ? markerIcons() : {};
-    const leg = directions?.routes?.[0]?.legs?.[0];
+    const route = useRoute(captainLocation, target, 'captain');
 
     return (
         <div className="relative h-full w-full">
             <BaseMap theme="night" center={captainLocation || undefined} zoom={14}>
-                {directions ? (
-                    <DirectionsRenderer
-                        directions={directions}
-                        options={{ suppressMarkers: true, polylineOptions: routeLineOptions('night') }}
-                    />
-                ) : null}
-                {captainLocation ? <Marker position={captainLocation} icon={icons.captain} title="You" /> : null}
-                {leg?.end_location ? (
-                    <Marker position={leg.end_location} icon={toDrop ? icons.drop : icons.pickup} title={toDrop ? 'Drop' : 'Pickup'} />
-                ) : null}
+                {route?.coordinates ? <MapRoute coordinates={route.coordinates} theme="night" /> : null}
+                {captainLocation ? <MapMarker position={captainLocation} icon="captain" title="You" /> : null}
+                {route?.to ? <MapMarker position={route.to} icon={toDrop ? 'drop' : 'pickup'} title={toDrop ? 'Drop' : 'Pickup'} /> : null}
             </BaseMap>
 
             {showBanner && routeTarget ? (
@@ -57,9 +29,7 @@ const CaptainRouteMap = ({ ride, mode, showBanner = true }) => {
                         <p className="text-xs text-night-muted">{toDrop ? t('captain.toDrop') : t('captain.toPickup')}</p>
                         <p className="truncate text-base font-semibold">{shortPlace(routeTarget)}</p>
                     </div>
-                    {leg?.duration?.text ? (
-                        <span className="ml-auto shrink-0 font-display text-lg font-semibold">{leg.duration.text}</span>
-                    ) : null}
+                    {route?.duration ? <span className="ml-auto shrink-0 font-display text-lg font-semibold">{route.duration}</span> : null}
                 </div>
             ) : null}
         </div>

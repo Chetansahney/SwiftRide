@@ -47,6 +47,9 @@ function publicRide(ride) {
     const plain = toPlain(ride);
     delete plain.otp;
     delete plain.shareToken;
+    delete plain.offers;
+    delete plain.declinedBy;
+    if (plain.dispatch) plain.dispatch = { radiusM: plain.dispatch.radiusM, wave: plain.dispatch.wave };
     return { ...plain, captain: publicCaptain(plain.captain), user: publicRider(plain.user) };
 }
 

@@ -22,6 +22,7 @@ mapsService.getDistanceTime = async () => ({ distance: '9.8 km', duration: '28 m
 const app = require('../app');
 const captainModel = require('../models/captain.models');
 const { currentShiftWindow } = require('../utils/shiftWindow');
+const { cellOf } = require('../services/dispatch');
 
 let mongo;
 async function start() {
@@ -51,7 +52,7 @@ async function rider(overrides = {}) {
 
 // Unique valid plates: WB01AK0001, WB01AK0002, ...
 const plate = (n) => `WB01AK${String(n).padStart(4, '0')}`;
-async function captain({ verified = true, vehicleType = 'auto', gender, online = true, confirmedWoman = false } = {}) {
+async function captain({ verified = true, vehicleType = 'auto', gender, online = true, confirmedWoman = false, at = { lat: 22.554, lng: 88.352 }, rating, ratingCount = 20 } = {}) {
     counter += 1;
     const res = await api()
         .post('/captains/register')
@@ -70,9 +71,10 @@ async function captain({ verified = true, vehicleType = 'auto', gender, online =
             {
                 'verification.status': 'verified',
                 ...(confirmedWoman ? { gender: 'female', 'genderCheck.status': 'verified' } : {}),
+                ...(rating ? { ratingTotal: rating * ratingCount, ratingCount } : {}),
                 shiftSelfie: { windowId: currentShiftWindow().id, status: 'verified', takenAt: new Date() },
                 ...(online
-                    ? { status: 'available', socketId: `socket-${counter}`, lastSeenAt: new Date(), location: { type: 'Point', coordinates: [88.352, 22.554] } }
+                    ? { status: 'available', socketId: `socket-${counter}`, lastSeenAt: new Date(), location: { type: 'Point', coordinates: [at.lng, at.lat] }, h3: cellOf(at.lat, at.lng) }
                     : {}),
             }
         );

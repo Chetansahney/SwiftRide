@@ -9,6 +9,8 @@ const server = http.createServer(app);
 server.headersTimeout = 20000;
 server.requestTimeout = 60000;
 initializeSocket(server);
+// Runs due dispatch waves every 2 s (and picks up open requests after a restart).
+require('./services/dispatch').startScheduler();
 server.listen(env.port, () => console.log(`Server is running on port ${env.port}`));
 
 process.on('unhandledRejection', (reason) => console.error('[unhandledRejection]', reason));

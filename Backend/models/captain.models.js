@@ -79,6 +79,12 @@ const captainSchema = new mongoose.Schema({
     cancellations: { type: Number, default: 0 },
     // Last live location update; captains silent for 2 minutes aren't offered rides.
     lastSeenAt: Date,
+    // H3 hexagon (resolution 8, ~0.7 km²) of the live location, for ring-by-ring dispatch.
+    h3: { type: String, index: true },
+    // Ride offers: shown, accepted (acceptance rate is part of the ranking).
+    offersReceived: { type: Number, default: 0 },
+    offersAccepted: { type: Number, default: 0 },
+    lastRideEndedAt: Date,
     // Rider ratings (1–5) of this captain.
     ratingTotal: { type: Number, default: 0 },
     ratingCount: { type: Number, default: 0 },

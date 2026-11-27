@@ -1,6 +1,19 @@
 // UI strings in English, Hindi and Bengali.
 // Hindi and Bengali are first drafts — have a native speaker review them before launch.
 const en = {
+    "ride.searchingOne": "Asking 1 captain within {km} km",
+    "captain.decline": "Decline",
+    "captain.offerExpired": "That ride offer expired.",
+    "captain.offerTaken": "Another captain accepted that ride.",
+    "captain.pickupAway": "{min} min to pickup · {distance}",
+    "captain.riderRating": "Rider ★ {rating}",
+    "captain.secondsLeft": "{s}s",
+    "ride.searching": "Asking {n} captains within {km} km",
+    "ride.searchingWider": "Looking further out — within {km} km",
+    "ride.noWomenTitle": "No woman captain nearby right now",
+    "ride.noWomenBody": "You can open your ride to any verified captain, or keep waiting for a woman captain.",
+    "ride.allowAny": "Any verified captain",
+    "ride.keepWaiting": "Keep waiting",
     "captain.genderLocked": "Locked once verification starts. Contact support to change it.",
     "captain.womanConfirmed": "Confirmed woman captain",
     "captain.womanReview": "We're confirming you as a woman captain. “Women riders only” unlocks after that.",
@@ -381,6 +394,19 @@ const en = {
 };
 
 const hi = {
+    "ride.searchingOne": "{km} किमी के अंदर 1 कैप्टन से पूछ रहे हैं",
+    "captain.decline": "मना करें",
+    "captain.offerExpired": "राइड का ऑफ़र समाप्त हो गया।",
+    "captain.offerTaken": "वह राइड किसी दूसरे कैप्टन ने ले ली।",
+    "captain.pickupAway": "पिकअप तक {min} मिनट · {distance}",
+    "captain.riderRating": "राइडर ★ {rating}",
+    "captain.secondsLeft": "{s} सेकंड",
+    "ride.searching": "{km} किमी के अंदर {n} कैप्टन से पूछ रहे हैं",
+    "ride.searchingWider": "और दूर तक ढूँढ रहे हैं — {km} किमी के अंदर",
+    "ride.noWomenTitle": "अभी पास में कोई महिला कैप्टन नहीं है",
+    "ride.noWomenBody": "आप अपनी राइड किसी भी सत्यापित कैप्टन के लिए खोल सकती हैं, या महिला कैप्टन का इंतज़ार कर सकती हैं।",
+    "ride.allowAny": "कोई भी सत्यापित कैप्टन",
+    "ride.keepWaiting": "इंतज़ार करें",
     "captain.genderLocked": "सत्यापन शुरू होने के बाद यह बदला नहीं जा सकता। बदलने के लिए सहायता से संपर्क करें।",
     "captain.womanConfirmed": "पुष्टि हुई महिला कैप्टन",
     "captain.womanReview": "हम आपको महिला कैप्टन के रूप में पुष्टि कर रहे हैं। उसके बाद “सिर्फ़ महिला राइडर” चालू होगा।",
@@ -761,6 +787,19 @@ const hi = {
 };
 
 const bn = {
+    "ride.searchingOne": "{km} কিমির মধ্যে 1 জন ক্যাপ্টেনকে জিজ্ঞেস করছি",
+    "captain.decline": "না করুন",
+    "captain.offerExpired": "রাইডের অফারের সময় শেষ।",
+    "captain.offerTaken": "অন্য একজন ক্যাপ্টেন রাইডটি নিয়েছেন।",
+    "captain.pickupAway": "পিকআপ পর্যন্ত {min} মিনিট · {distance}",
+    "captain.riderRating": "রাইডার ★ {rating}",
+    "captain.secondsLeft": "{s} সেকেন্ড",
+    "ride.searching": "{km} কিমির মধ্যে {n} জন ক্যাপ্টেনকে জিজ্ঞেস করছি",
+    "ride.searchingWider": "আরও দূরে খুঁজছি — {km} কিমির মধ্যে",
+    "ride.noWomenTitle": "এখন কাছাকাছি কোনো মহিলা ক্যাপ্টেন নেই",
+    "ride.noWomenBody": "আপনার রাইড যেকোনো যাচাই করা ক্যাপ্টেনের জন্য খুলে দিতে পারেন, বা মহিলা ক্যাপ্টেনের অপেক্ষা করতে পারেন।",
+    "ride.allowAny": "যেকোনো যাচাই করা ক্যাপ্টেন",
+    "ride.keepWaiting": "অপেক্ষা করুন",
     "captain.genderLocked": "যাচাই শুরু হলে এটি আর বদলানো যায় না। বদলাতে সহায়তার সঙ্গে যোগাযোগ করুন।",
     "captain.womanConfirmed": "নিশ্চিত মহিলা ক্যাপ্টেন",
     "captain.womanReview": "আমরা আপনাকে মহিলা ক্যাপ্টেন হিসেবে নিশ্চিত করছি। তারপর “শুধু মহিলা রাইডার” চালু হবে।",

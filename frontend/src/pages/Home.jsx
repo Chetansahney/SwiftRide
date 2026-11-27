@@ -17,7 +17,7 @@ import { UserDataContext } from '../context/UserContext';
 import { useLanguage } from '../i18n/LanguageContext';
 import { STRINGS } from '../i18n/strings';
 import { FEATURES, isLateEvening, shortPlace } from '../lib/config';
-import { reverseGeocode, useLocation } from '../lib/maps';
+import { nearParams, reverseGeocode, useLocation } from '../lib/maps';
 import { addRecentPlace, getRecentPlaces, getSavedPlaces, savePlace } from '../lib/places';
 import useSpeechInput from '../lib/useSpeechInput';
 import socket from '../socket';
@@ -73,6 +73,9 @@ const Home = () => {
     const [ride, setRide] = useState(null);
     // Short message at the top of the map (ride cancelled, captain dropped, ...).
     const [notice, setNotice] = useState(null);
+    // Live search progress from the dispatcher, and the "no woman captain" choice.
+    const [search, setSearch] = useState(null);
+    const [noWomenPrompt, setNoWomenPrompt] = useState(false);
     useEffect(() => {
         if (!notice) return undefined;
         const timer = setTimeout(() => setNotice(null), 6000);
@@ -205,7 +208,7 @@ const Home = () => {
         }
         setVoiceGuess({ text, place: null });
         axios
-            .get(`${API}/maps/get-suggestions`, { params: { input: text }, headers: authHeaders() })
+            .get(`${API}/maps/get-suggestions`, { params: { input: text, ...nearParams() }, headers: authHeaders() })
             .then((response) => setVoiceGuess({ text, place: response.data?.[0]?.description || text }))
             .catch(() => setVoiceGuess({ text, place: text }));
     });
@@ -293,13 +296,31 @@ const Home = () => {
             setLookingForDriverPanel(true);
             setNotice(requeued?.guaranteeCredit ? { key: 'ride.requeuedCredit', vars: { amount: requeued.guaranteeCredit } } : 'ride.requeued');
         };
+        const handleProgress = (progress) => setSearch(progress);
+        const handleNoWomen = () => setNoWomenPrompt(true);
+        // Nobody accepted for 10 minutes: the request was closed.
+        const handleExpired = () => {
+            setLookingForDriverPanel(false);
+            setRide(null);
+            setCreatedRide(null);
+            setSearch(null);
+            setNoWomenPrompt(false);
+            localStorage.removeItem('activeRide');
+            setNotice('ride.noCaptain');
+        };
         socket.on('ride-confirmed', handleRideConfirmed);
         socket.on('captain-arrived', handleCaptainArrived);
         socket.on('ride-requeued', handleRequeued);
+        socket.on('dispatch-progress', handleProgress);
+        socket.on('dispatch-no-women', handleNoWomen);
+        socket.on('ride-expired', handleExpired);
         return () => {
             socket.off('ride-confirmed', handleRideConfirmed);
             socket.off('captain-arrived', handleCaptainArrived);
             socket.off('ride-requeued', handleRequeued);
+            socket.off('dispatch-progress', handleProgress);
+            socket.off('dispatch-no-women', handleNoWomen);
+            socket.off('ride-expired', handleExpired);
         };
     }, []);
 
@@ -356,7 +377,7 @@ const Home = () => {
             // Distance to the nearest driver of each type; optional, so a failure
             // just hides the "200 m from pickup" line.
             axios
-                .get(`${API}/rides/nearby`, { params: { origin: pickup }, headers, signal: controller.signal })
+                .get(`${API}/rides/nearby`, { params: { origin: pickup, ...nearParams() }, headers, signal: controller.signal })
                 .then((response) => setNearby(response.data))
                 .catch((error) => {
                     if (error.code !== 'ERR_CANCELED') setNearby(null);
@@ -364,12 +385,12 @@ const Home = () => {
             try {
                 const [fareResponse, distanceResponse] = await Promise.all([
                     axios.get(`${API}/rides/calculate-fare`, {
-                        params: { origin: pickup, destination },
+                        params: { origin: pickup, destination, ...nearParams() },
                         headers,
                         signal: controller.signal,
                     }),
                     axios.get(`${API}/maps/get-distance-time`, {
-                        params: { origin: pickup, destination },
+                        params: { origin: pickup, destination, ...nearParams() },
                         headers,
                         signal: controller.signal,
                     }),
@@ -398,6 +419,7 @@ const Home = () => {
                     origin: pickup,
                     destination,
                     vehicleType,
+                    ...nearParams(),
                     travellingAsWoman: womenMode,
                     // With no woman captain nearby the rider chooses: any verified captain, or keep waiting.
                     preferWomenCaptain: womenMode && !(nearby && nearby.women?.[vehicleType] == null && allowAnyCaptain),
@@ -416,6 +438,14 @@ const Home = () => {
             if (error.response?.status === 409) setNotice('ride.alreadyActive');
             return null;
         }
+    }
+
+    // No woman captain nearby: the rider opens the ride to any verified captain.
+    async function openToAnyCaptain() {
+        const current = ride || createdRide;
+        setNoWomenPrompt(false);
+        if (!current?._id) return;
+        await axios.post(`${API}/rides/${current._id}/allow-any-captain`, {}, { headers: authHeaders() }).catch(() => {});
     }
 
     // Free before the ride starts. Clears the booking so the rider can book again.
@@ -822,6 +852,10 @@ const Home = () => {
                     distanceTime={distanceTime}
                     selectedVehicle={selectedVehicle}
                     onCancel={cancelRide}
+                    search={search}
+                    noWomenPrompt={noWomenPrompt}
+                    onAllowAny={openToAnyCaptain}
+                    onKeepWaiting={() => setNoWomenPrompt(false)}
                 />
             </Sheet>
 

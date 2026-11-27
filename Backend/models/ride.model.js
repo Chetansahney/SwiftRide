@@ -115,8 +115,30 @@ const rideSchema=new mongoose.Schema({
     cancelledAt: Date,
     cancelledBy: { type: String, enum: ['rider', 'captain', 'system'] },
     cancelReason: { type: String, maxlength: 200 },
-    // Captains who dropped or let this request expire; it isn't offered to them again.
+    // Captains who dropped or declined this request; it isn't offered to them again.
     declinedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Captain' }],
+    // Wave dispatch (services/dispatch.js): who was offered the ride, and when.
+    offers: [{
+        _id: false,
+        captain: { type: mongoose.Schema.Types.ObjectId, ref: 'Captain' },
+        wave: Number,
+        ring: Number,
+        at: Date,
+        expiresAt: Date,
+        status: { type: String, enum: ['offered', 'declined', 'expired', 'withdrawn', 'accepted'] },
+        etaMin: Number,
+        distanceM: Number,
+        score: Number,
+    }],
+    dispatch: {
+        ringIndex: { type: Number, default: 0 },
+        wave: { type: Number, default: 0 },
+        nextAt: Date,
+        startedAt: Date,
+        radiusM: Number,
+        notified: { type: Number, default: 0 },
+        womenNoticeSent: Boolean,
+    },
     ratingComment: { type: String, maxlength: 300 },
 }, { timestamps: { createdAt: false, updatedAt: true } });
 
@@ -125,5 +147,7 @@ rideSchema.index({ user: 1, createdAt: -1 });
 rideSchema.index({ captain: 1, createdAt: -1 });
 rideSchema.index({ user: 1, status: 1 });
 rideSchema.index({ captain: 1, status: 1 });
+// The dispatcher looks for requests whose next wave is due.
+rideSchema.index({ status: 1, 'dispatch.nextAt': 1 });
 
 module.exports=mongoose.model('ride',rideSchema);

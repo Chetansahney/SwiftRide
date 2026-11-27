@@ -20,12 +20,35 @@ DB_CONNECT=your_mongodb_uri
 JWT_SECRET=your_long_random_secret
 # Websites allowed to call the API (comma-separated). Required: without it the app can't reach the API.
 CORS_ORIGINS=https://swiftride-red.vercel.app
-GOOGLE_MAPS_API=your_google_maps_api_key
+# Maps need no key: free OpenStreetMap services (fair use). Point these at your
+# own servers when traffic grows (all open source):
+# PHOTON_URL=https://photon.komoot.io
+# OSRM_URL=https://routing.openstreetmap.de/routed-car
+# ROUTE_TRAFFIC_FACTOR=1.6
 # Licence/vehicle checks. Only "test" exists until a DigiLocker/KYC provider is signed up.
 VERIFICATION_PROVIDER=test
 # Long random string; reviewers enter it on /admin/review. Admin routes are off without it.
 ADMIN_KEY=your_admin_key
 ```
+
+## Maps (no Google, no billing)
+
+- **Map tiles:** the app draws maps with MapLibre on OpenFreeMap tiles (OpenStreetMap data). It's free, needs no API key, and allows commercial use.
+- **Search and addresses:** Photon (`services/geo.js`) handles search, current-location addresses and the nearest station. Searches are biased to the rider's position and limited to India. Typing "park street metro" also looks for stations named "Park Street", and shows those first.
+- **Roads, distance and time:** OSRM. Free-flow times are multiplied by `ROUTE_TRAFFIC_FACTOR` (default 1.6) to allow for Indian city traffic. If routing is down, fares fall back to a straight-line estimate so booking never breaks.
+- **Load on the free servers:** answers are cached and requests are spaced out, to respect the free services' fair-use rules. At scale, run Photon and OSRM yourself and set `PHOTON_URL` and `OSRM_URL`.
+
+## Dispatch (`services/dispatch.js`)
+
+- **How the search spreads:** captains' live locations are indexed in H3 hexagons (resolution 8, about 0.7 km²). A request first searches the ring around the pickup and widens ring by ring: about 0.9, 1.8, 2.8, 3.7 and 5.5 km for bikes and autos, up to about 8.3 km for cabs.
+- **How offers go out:** each wave offers the ride to the best 3 captains at once, live over Socket.IO, with a 15-second accept window. A decline moves to the next captains immediately; an ignored offer times out. Only captains who were offered a ride can accept it. Requests close after 10 minutes with nobody.
+- **Ranking:**
+  - pickup time,
+  - plus 3 minutes for each star of difference between the captain's and the rider's ratings (smoothed averages), so well-rated riders get well-rated captains,
+  - plus penalties for low acceptance and dropped rides,
+  - minus a small boost for captains who've waited longest.
+- **Women's safety rules are hard filters:** women-only requests go only to confirmed women captains. If none is found for 90 seconds, the rider can open the ride to any verified captain. A confirmed woman captain on "women riders only" never gets other riders.
+- **Background scheduler:** it runs due waves every 2 seconds and picks up open requests after a restart.
 
 ## Security
 

@@ -5,7 +5,7 @@ import CancelRideButton from './CancelRideButton';
 import { useLanguage } from '../i18n/LanguageContext';
 import { formatFare, vehicleMeta } from '../lib/config';
 
-const LookingForDriver = ({ setLookingForDriverPanel, pickup, destination, fare, selectedVehicle, onCancel }) => {
+const LookingForDriver = ({ setLookingForDriverPanel, pickup, destination, fare, selectedVehicle, onCancel, search, noWomenPrompt, onAllowAny, onKeepWaiting }) => {
     const { t } = useLanguage();
     const vehicle = vehicleMeta(selectedVehicle);
     const rideFare = fare?.[selectedVehicle];
@@ -31,7 +31,13 @@ const LookingForDriver = ({ setLookingForDriverPanel, pickup, destination, fare,
                 <h2 className="font-display text-[22px] font-semibold tracking-tight" aria-live="polite">
                     {t('ride.looking')}
                 </h2>
-                <p className="text-sm text-muted">{t('ride.lookingSub')}</p>
+                <p className="text-sm text-muted" aria-live="polite">
+                    {search?.asked
+                        ? t(search.asked === 1 ? 'ride.searchingOne' : 'ride.searching', { n: search.asked, km: search.radiusKm })
+                        : search?.radiusKm
+                          ? t('ride.searchingWider', { km: search.radiusKm })
+                          : t('ride.lookingSub')}
+                </p>
             </div>
 
             <div className="h-1 w-full overflow-hidden rounded-full bg-line" aria-hidden="true">
@@ -46,6 +52,21 @@ const LookingForDriver = ({ setLookingForDriverPanel, pickup, destination, fare,
                 </span>
                 <strong className="font-display text-xl font-semibold">{formatFare(rideFare)}</strong>
             </div>
+
+            {noWomenPrompt ? (
+                <div role="alertdialog" aria-label={t('ride.noWomenTitle')} className="flex flex-col gap-3 rounded-2xl bg-paper p-4">
+                    <strong className="text-base font-semibold">{t('ride.noWomenTitle')}</strong>
+                    <p className="text-sm text-muted">{t('ride.noWomenBody')}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                        <button type="button" onClick={onKeepWaiting} className="h-12 rounded-xl bg-white text-sm font-semibold ring-1 ring-line">
+                            {t('ride.keepWaiting')}
+                        </button>
+                        <button type="button" onClick={onAllowAny} className="h-12 rounded-xl bg-ink text-sm font-semibold text-white">
+                            {t('ride.allowAny')}
+                        </button>
+                    </div>
+                </div>
+            ) : null}
 
             {onCancel ? <CancelRideButton onConfirm={onCancel} /> : null}
         </div>

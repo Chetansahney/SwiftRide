@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { LogOut } from 'lucide-react';
@@ -35,6 +35,18 @@ const CaptainHome = () => {
         return () => clearTimeout(timer);
     }, [notice]);
     const { captain } = useContext(CaptainDataContext);
+    // True while accepted/on the way to pickup: new offers are ignored.
+    const busyRef = useRef(false);
+    const offerRef = useRef(null);
+    useEffect(() => {
+        busyRef.current = confirmRidePopUp;
+        offerRef.current = ride;
+    }, [confirmRidePopUp, ride]);
+    const expireOffer = useCallback(() => {
+        setRidePopUp(false);
+        setRide(null);
+        setNotice('captain.offerExpired');
+    }, []);
 
     // Join the socket room and share live location every second.
     useEffect(() => {
@@ -73,9 +85,18 @@ const CaptainHome = () => {
     }, [captain]);
 
     useEffect(() => {
+        // A new offer, unless this captain is already busy with a ride.
         const handleNewRide = (data) => {
+            if (busyRef.current) return;
             setRide(data);
             setRidePopUp(true);
+        };
+        // The offer was taken by another captain or timed out.
+        const handleWithdrawn = (data) => {
+            if (busyRef.current || String(offerRef.current?._id) !== String(data?.rideId)) return;
+            setRidePopUp(false);
+            setRide(null);
+            setNotice(data?.reason === 'taken' ? 'captain.offerTaken' : 'captain.offerExpired');
         };
         // The rider cancelled before pickup.
         // Only ever sent for this captain's own (single) active ride.
@@ -87,15 +108,17 @@ const CaptainHome = () => {
             setNotice('captain.riderCancelled');
         };
         socket.on('new-ride', handleNewRide);
+        socket.on('ride-offer-withdrawn', handleWithdrawn);
         socket.on('ride-cancelled', handleCancelled);
         return () => {
             socket.off('new-ride', handleNewRide);
+            socket.off('ride-offer-withdrawn', handleWithdrawn);
             socket.off('ride-cancelled', handleCancelled);
         };
     }, []);
 
     async function confirmride() {
-        if (!ride?._id) return;
+        if (!ride?._id) return false;
         const token = localStorage.getItem('captainToken');
         try {
             const response = await axios.post(
@@ -107,9 +130,23 @@ const CaptainHome = () => {
                 setRide(response.data.ride);
                 localStorage.setItem('activeRide', JSON.stringify(response.data.ride));
             }
+            return true;
         } catch (error) {
-            console.error('Error confirming ride:', error.response?.data || error.message);
+            setNotice(error.response?.status === 409 ? 'captain.offerTaken' : 'captain.offerExpired');
+            setRide(null);
+            return false;
         }
+    }
+
+    // Says no: the next captain is asked straight away (and this one isn't asked again).
+    async function declineOffer() {
+        const offered = ride;
+        setRidePopUp(false);
+        setRide(null);
+        if (!offered?._id) return;
+        await axios
+            .post(`${import.meta.env.VITE_BASE_URL}/rides/${offered._id}/decline`, {}, { headers: { Authorization: `Bearer ${localStorage.getItem('captainToken')}` } })
+            .catch(() => {});
     }
 
     async function logout() {
@@ -164,6 +201,8 @@ const CaptainHome = () => {
                     setRidePopUp={setRidePopUp}
                     setconfirmRidePopUp={setconfirmRidePopUp}
                     confirmride={confirmride}
+                    onDecline={declineOffer}
+                    onExpired={expireOffer}
                     pickup={ride?.origin}
                     destination={ride?.destination}
                     fare={ride?.fare}

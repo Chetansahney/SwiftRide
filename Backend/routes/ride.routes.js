@@ -10,6 +10,8 @@ const { validate } = require('../utils/validators');
 const router = express.Router();
 
 const place = (field, where = body) => where(field).isString().trim().isLength({ min: 3, max: 200 }).withMessage(`${field} is required`);
+const nearQuery = [query('nearLat').optional().isFloat({ min: -90, max: 90 }), query('nearLng').optional().isFloat({ min: -180, max: 180 })];
+const nearBody = [body('nearLat').optional().isFloat({ min: -90, max: 90 }), body('nearLng').optional().isFloat({ min: -180, max: 180 })];
 const rideIdBody = body('rideId').isMongoId().withMessage('Ride ID is required');
 const rideIdParam = param('rideId').isMongoId().withMessage('Invalid ride');
 const reason = body('reason').optional().isString().trim().isLength({ max: 200 });
@@ -26,12 +28,13 @@ router.post('/create',
     place('destination'),
     body('vehicleType').isIn(['moto', 'bike', 'auto', 'car']).withMessage('Vehicle type is required'),
     body('preferWomenCaptain').optional().isBoolean().toBoolean(),
+    ...nearBody,
     validate,
     rideController.createRide
 );
-router.get('/calculate-fare', authUser, expensiveLimiter, place('origin', query), place('destination', query), validate, rideController.calculateFare);
+router.get('/calculate-fare', authUser, expensiveLimiter, place('origin', query), place('destination', query), ...nearQuery, validate, rideController.calculateFare);
 // Distance from the pickup to the nearest available driver of each vehicle type.
-router.get('/nearby', authUser, expensiveLimiter, place('origin', query), validate, rideController.getNearbyDrivers);
+router.get('/nearby', authUser, expensiveLimiter, place('origin', query), ...nearQuery, validate, rideController.getNearbyDrivers);
 router.get('/active', authUser, rideController.getActiveRide);
 router.get('/history', authUser, rideController.getRideHistory);
 router.post('/complete-payment',
@@ -60,6 +63,8 @@ router.get('/captain/stats', authCaptain, ratingController.captainStats);
 router.get('/captain/history', authCaptain, ratingController.captainHistory);
 
 router.post('/:rideId/cancel', authUser, rideIdParam, reason, validate, rideController.cancelByRider);
+router.post('/:rideId/decline', authCaptain, rideIdParam, validate, rideController.declineOffer);
+router.post('/:rideId/allow-any-captain', authUser, rideIdParam, validate, rideController.allowAnyCaptain);
 router.post('/:rideId/captain-cancel', authCaptain, rideIdParam, reason, validate, rideController.cancelByCaptain);
 
 router.post('/:rideId/report',

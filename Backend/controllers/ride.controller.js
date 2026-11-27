@@ -6,8 +6,15 @@ const rideModel = require('../models/ride.model');
 const { sendMessagetoSocketID } = require('../socket');
 const { publicRide, publicCaptain } = require('../utils/publicViews');
 const { HttpError } = require('../utils/httpError');
+const dispatch = require('../services/dispatch');
 
-const DISPATCH_RADIUS_KM = 10;
+
+// Optional rider position (nearLat/nearLng) so typed places resolve nearby.
+function nearFrom(source) {
+    const lat = parseFloat(source?.nearLat);
+    const lng = parseFloat(source?.nearLng);
+    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : undefined;
+}
 
 // Load a ride with both parties populated, including the captain's shift selfie
 // (riders compare it with the person who turns up).
@@ -23,16 +30,6 @@ async function notify(model, id, event, data) {
 const notifyUser = (id, event, data) => notify(userModel, id, event, data);
 const notifyCaptain = (id, event, data) => notify(captainModel, id, event, data);
 
-// Offers a requested ride to every nearby captain who can take it.
-async function dispatch(ride) {
-    if (!ride.pickupPoint?.lat) return 0;
-    const nearby = await mapservice.getCaptainsNearby(ride.pickupPoint.lat, ride.pickupPoint.lng, DISPATCH_RADIUS_KM);
-    const eligible = nearby.filter((captain) => captain.socketId && rideservice.canTake(captain, ride));
-    const payload = publicRide(await findRide(ride._id));
-    eligible.forEach((captain) => sendMessagetoSocketID(captain.socketId, { event: 'new-ride', data: payload }));
-    return eligible.length;
-}
-
 module.exports.createRide = async (req, res) => {
     const { origin, destination, vehicleType, preferWomenCaptain } = req.body;
     const riderIsWoman = Boolean(req.user.safetyPrefs?.travellingAsWoman || preferWomenCaptain);
@@ -43,17 +40,19 @@ module.exports.createRide = async (req, res) => {
         vehicleType,
         preferWomenCaptain: Boolean(preferWomenCaptain),
         riderIsWoman,
+        near: nearFrom(req.body),
     });
-    const notifiedCaptains = await dispatch(ride);
-    res.status(201).json({ message: 'Ride created successfully', ride: publicRide(ride), otp, notifiedCaptains });
+    // Wave 1 goes out immediately: the best captains in the nearest rings.
+    const firstWave = await dispatch.startDispatch(ride._id);
+    res.status(201).json({ message: 'Ride created successfully', ride: publicRide(ride), otp, notifiedCaptains: firstWave.offered });
 };
 
 module.exports.calculateFare = async (req, res) => {
-    res.json(await rideservice.calculateFare(req.query.origin, req.query.destination));
+    res.json(await rideservice.calculateFare(req.query.origin, req.query.destination, { near: nearFrom(req.query) }));
 };
 
 module.exports.getNearbyDrivers = async (req, res) => {
-    const point = await mapservice.getLocationCoordinates(req.query.origin);
+    const point = await mapservice.getLocationCoordinates(req.query.origin, nearFrom(req.query));
     const [nearest, nearestWomen] = await Promise.all([
         mapservice.getNearestCaptainsByType(point.latitude, point.longitude),
         mapservice.getNearestCaptainsByType(point.latitude, point.longitude, 5000, { womenOnly: true }),
@@ -68,6 +67,7 @@ module.exports.getNearbyDrivers = async (req, res) => {
 
 module.exports.confirmRide = async (req, res) => {
     const confirmed = await rideservice.confirmRide(req.body.rideId, req.captain);
+    await dispatch.settleAccepted(confirmed, req.captain._id);
     const ride = publicRide(await findRide(confirmed._id));
     await notifyUser(confirmed.user._id, 'ride-confirmed', ride);
     res.json({ message: 'Ride confirmed successfully', ride });
@@ -105,14 +105,16 @@ module.exports.completePayment = async (req, res) => {
 module.exports.cancelByRider = async (req, res) => {
     const { ride, before } = await rideservice.cancelRide({ rideId: req.params.rideId, by: 'rider', actorId: req.user._id, reason: req.body.reason });
     if (before?.captain) await notifyCaptain(before.captain, 'ride-cancelled', { rideId: String(ride._id), by: 'rider' });
+    await dispatch.stopDispatch(before);
     res.json({ message: 'Ride cancelled', ride: publicRide(ride) });
 };
 
 // The rider isn't left stranded: the ride goes straight back to other captains.
 module.exports.cancelByCaptain = async (req, res) => {
     const { ride, guaranteeCredit } = await rideservice.cancelRide({ rideId: req.params.rideId, by: 'captain', actorId: req.captain._id, reason: req.body.reason });
-    const notifiedCaptains = await dispatch(ride);
-    await notifyUser(ride.user, 'ride-requeued', { ...publicRide(ride), notifiedCaptains, guaranteeCredit });
+    const wave = await dispatch.startDispatch(ride._id);
+    await notifyUser(ride.user, 'ride-requeued', { ...publicRide(ride), notifiedCaptains: wave.offered, guaranteeCredit });
+    const notifiedCaptains = wave.offered;
     res.json({ message: 'Ride released', notifiedCaptains });
 };
 
@@ -149,4 +151,23 @@ module.exports.getActiveRide = async (req, res) => {
 module.exports.getCaptainActiveRide = async (req, res) => {
     const ride = await rideModel.findOne({ captain: req.captain._id, status: { $in: ['accepted', 'ongoing'] } }).populate('user').populate('captain');
     res.json({ ride: ride ? publicRide(ride) : null });
+};
+
+// Captain says no to an offer: the next best captains are asked right away.
+module.exports.declineOffer = async (req, res) => {
+    const ok = await dispatch.declineOffer(req.params.rideId, req.captain._id);
+    if (!ok) throw new HttpError(409, 'This offer is no longer open.');
+    res.json({ ok: true });
+};
+
+// No woman captain found nearby: the rider chooses to accept any verified captain.
+module.exports.allowAnyCaptain = async (req, res) => {
+    const ride = await rideModel.findOneAndUpdate(
+        { _id: req.params.rideId, user: req.user._id, status: 'requested', preferWomenCaptain: true },
+        { preferWomenCaptain: false, 'dispatch.ringIndex': 0 },
+        { new: true }
+    );
+    if (!ride) throw new HttpError(409, 'This ride is no longer searching.');
+    const wave = await dispatch.runWave(ride._id, { force: true });
+    res.json({ ok: true, notifiedCaptains: wave.offered });
 };

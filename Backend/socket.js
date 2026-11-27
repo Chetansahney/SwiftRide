@@ -5,6 +5,7 @@ const rideModel = require('./models/ride.model');
 const { resolveAccount } = require('./middleware/auth.middleware');
 const { isAllowedOrigin } = require('./config/env');
 const { verifyToken } = require('./utils/tokens');
+const dispatch = require('./services/dispatch');
 
 let io;
 
@@ -44,6 +45,13 @@ const initializeSocket = (httpServer) => {
         next();
     });
 
+    // How the dispatcher reaches captains and riders.
+    const sendTo = (model) => async (id, event, data) => {
+        const account = await model.findById(id).select('socketId').catch(() => null);
+        if (account?.socketId) io.to(account.socketId).emit(event, data);
+    };
+    dispatch.setNotifier({ toCaptain: sendTo(captainModel), toRider: sendTo(userModel) });
+
     io.on('connection', (socket) => {
         socket.on('join', async (data) => {
             try {
@@ -77,6 +85,7 @@ const initializeSocket = (httpServer) => {
                     {
                         $set: {
                             location: { type: 'Point', coordinates: [location.lng, location.lat] },
+                            h3: dispatch.cellOf(location.lat, location.lng),
                             lastSeenAt: '$$NOW',
                             status: { $cond: [{ $eq: ['$status', 'busy'] }, 'busy', 'available'] },
                         },

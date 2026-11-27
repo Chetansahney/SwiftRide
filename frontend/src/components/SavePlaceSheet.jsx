@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
+import { nearParams } from '../lib/maps';
 import { Check, MapPin, X } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
 
@@ -24,7 +25,7 @@ export default function SavePlaceSheet({ kind, onClose, onSave }) {
         const timer = setTimeout(() => {
             axios
                 .get(`${API}/maps/get-suggestions`, {
-                    params: { input: query },
+                    params: { input: query, ...nearParams() },
                     headers: { Authorization: `Bearer ${localStorage.getItem('userToken')}` },
                     signal: controller.signal,
                 })

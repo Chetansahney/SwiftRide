@@ -87,9 +87,9 @@ async function dropIsLowDemand(dropPoint) {
     return nearby < RETURN_FEE.lowDemandCaptains;
 }
 
-async function geocodePoint(address) {
+async function geocodePoint(address, near) {
     try {
-        const { latitude, longitude } = await mapsService.getLocationCoordinates(address);
+        const { latitude, longitude } = await mapsService.getLocationCoordinates(address, near);
         return { lat: latitude, lng: longitude };
     } catch (error) {
         console.warn('Could not geocode', address, '-', error.message);
@@ -99,18 +99,18 @@ async function geocodePoint(address) {
 
 // Fare per vehicle type plus the breakdown the rider sees. Returns
 // { moto, auto, car, breakdown: { moto: { ride, returnFee, nightFee }, ... }, returnFeeReason, isNight }.
-async function calculateFare(origin, destination, { at = new Date(), dropPoint } = {}) {
+async function calculateFare(origin, destination, { at = new Date(), dropPoint, near } = {}) {
     if (!origin || !destination) {
         throw new Error("Origin and destination are required to calculate fare.");
     }
-    const distTime = await mapsService.getDistanceTime(origin, destination);
+    const distTime = await mapsService.getDistanceTime(origin, destination, near);
     if (!distTime || !distTime.distance || !distTime.duration) {
         throw new Error("Distance and duration are required to calculate fare.");
     }
 
-    const distanceKm = parseDistanceKm(distTime.distance);
-    const durationMin = parseDurationMin(distTime.duration);
-    const drop = dropPoint !== undefined ? dropPoint : await geocodePoint(destination);
+    const distanceKm = Number.isFinite(distTime.distanceM) ? distTime.distanceM / 1000 : parseDistanceKm(distTime.distance);
+    const durationMin = Number.isFinite(distTime.durationS) ? Math.max(1, distTime.durationS / 60) : parseDurationMin(distTime.duration);
+    const drop = dropPoint !== undefined ? dropPoint : await geocodePoint(destination, near);
     const lowDemand = await dropIsLowDemand(drop).catch(() => false);
     const longTrip = distanceKm >= RETURN_FEE.longTripKm;
     const returnFeeApplies = lowDemand || longTrip;
@@ -145,6 +145,7 @@ const ACTIVE_RIDER = ['requested', 'accepted', 'ongoing'];
 const ACTIVE_CAPTAIN = ['accepted', 'ongoing'];
 const REQUEST_TTL_MS = 10 * 60 * 1000; // unanswered requests expire after 10 minutes
 const MAX_OTP_ATTEMPTS = 5;
+const OFFER_GRACE_MS = 5000;
 
 const normalizeType = (type) => (type === 'bike' ? 'moto' : type);
 
@@ -164,7 +165,7 @@ async function expireStaleRequests(filter = {}) {
 }
 module.exports.expireStaleRequests = expireStaleRequests;
 
-module.exports.createRide = async ({ user, origin, destination, vehicleType, preferWomenCaptain = false, riderIsWoman = false }) => {
+module.exports.createRide = async ({ user, origin, destination, vehicleType, preferWomenCaptain = false, riderIsWoman = false, near }) => {
     await expireStaleRequests({ user });
     const active = await ridemodel.findOne({ user, status: { $in: ACTIVE_RIDER } }).select('_id');
     if (active) {
@@ -172,10 +173,12 @@ module.exports.createRide = async ({ user, origin, destination, vehicleType, pre
     }
 
     const type = normalizeType(vehicleType);
-    const [pickupPoint, dropPoint] = await Promise.all([geocodePoint(origin), geocodePoint(destination)]);
+    // Places are looked up near the rider, then the drop near the pickup.
+    const pickupPoint = await geocodePoint(origin, near);
+    const dropPoint = await geocodePoint(destination, pickupPoint || near);
     if (!pickupPoint) throw new HttpError(400, "We couldn't find that pickup location.");
     const { otp, hash } = await getOTP();
-    const fare = await calculateFare(origin, destination, { dropPoint });
+    const fare = await calculateFare(origin, destination, { dropPoint, near: pickupPoint || near });
     const breakdown = fare.breakdown[type] || fare.breakdown.car;
 
     const ride = await ridemodel.create({
@@ -221,16 +224,24 @@ module.exports.confirmRide = async (rideId, captain) => {
     const candidate = await ridemodel.findById(rideId);
     if (!candidate) throw new HttpError(404, 'Ride not found.');
     if (!canTake(captain, candidate)) throw new HttpError(403, 'This ride is not available to you.');
+    // Only captains the dispatcher actually offered this ride to can take it
+    // (a few seconds' grace for slow networks).
+    const offerFilter = { offers: { $elemMatch: { captain: captain._id, status: 'offered', expiresAt: { $gte: new Date(Date.now() - OFFER_GRACE_MS) } } } };
 
     const ride = await ridemodel
         .findOneAndUpdate(
-            { _id: rideId, status: 'requested', requestedAt: { $gte: new Date(Date.now() - REQUEST_TTL_MS) } },
+            { _id: rideId, status: 'requested', requestedAt: { $gte: new Date(Date.now() - REQUEST_TTL_MS) }, ...offerFilter },
             { captain: captain._id, status: 'accepted' },
             { new: true }
         )
         .populate('user')
         .populate('captain');
-    if (!ride) throw new HttpError(409, 'This ride was already taken.');
+    if (!ride) {
+        if (candidate.status === 'requested' && !(await ridemodel.exists({ _id: rideId, ...offerFilter }))) {
+            throw new HttpError(410, 'This ride offer has expired.');
+        }
+        throw new HttpError(409, 'This ride was already taken.');
+    }
     await captainModel.updateOne({ _id: captain._id }, { status: 'busy' });
     return ride;
 };
@@ -296,7 +307,7 @@ module.exports.endRide = async (rideId, captainId) => {
         endedAt: new Date(),
         'safety.endedAwayFromDrop': endedAwayFromDrop,
     });
-    await captainModel.updateOne({ _id: captainId, status: 'busy' }, { status: 'available' });
+    await captainModel.updateOne({ _id: captainId, status: 'busy' }, { status: 'available', lastRideEndedAt: new Date() });
     return ride;
 };
 
