@@ -25,6 +25,18 @@ const nameRule = (field, { optional = false } = {}) => {
         .withMessage('Name can only contain letters');
 };
 
+// "+91 98765 43210" / "098765 43210" / "9876543210" → "9876543210"
+const normalizePhone = (value) => String(value ?? '').replace(/\D/g, '').replace(/^(91|0)(?=\d{10}$)/, '');
+
+// Indian mobile numbers. Not verified by SMS yet (no paid SMS provider).
+const phoneRule = (field = 'phone', { optional = false } = {}) => {
+    const rule = body(field);
+    return (optional ? rule.optional({ values: 'falsy' }) : rule)
+        .customSanitizer(normalizePhone)
+        .matches(/^[6-9]\d{9}$/)
+        .withMessage('Enter a 10-digit Indian mobile number');
+};
+
 // Login only checks shape; strength rules apply at sign-up so old accounts still work.
 const loginRules = [
     body('email').isString().trim().isLength({ min: 3, max: 254 }).toLowerCase(),
@@ -40,4 +52,4 @@ function validate(req, res, next) {
     return next();
 }
 
-module.exports = { passwordRule, emailRule, nameRule, loginRules, validate };
+module.exports = { passwordRule, emailRule, nameRule, phoneRule, normalizePhone, loginRules, validate };

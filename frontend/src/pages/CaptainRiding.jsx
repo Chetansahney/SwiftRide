@@ -8,6 +8,7 @@ import { CaptainDataContext } from '../context/CaptainContext';
 import socket from '../socket';
 import { useLanguage } from '../i18n/LanguageContext';
 import { formatFare, shortPlace } from '../lib/config';
+import useKeepAwake from '../lib/useKeepAwake';
 
 const CaptainRiding = () => {
     const { t } = useLanguage();
@@ -22,6 +23,9 @@ const CaptainRiding = () => {
             return null;
         }
     });
+
+    // The rider and their trusted contacts follow this phone's location.
+    useKeepAwake(Boolean(ride?._id));
 
     // Identify this socket with the login token (again after any reconnect).
     useEffect(() => {

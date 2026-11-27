@@ -1,5 +1,7 @@
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 const { validationResult } = require('express-validator');
+const { notifyTeam, LABELS } = require('../services/alertNotifier');
 const rideModel = require('../models/ride.model');
 const userModel = require('../models/user.models');
 const captainModel = require('../models/captain.models');
@@ -28,6 +30,8 @@ async function loadRiderRide(req, res) {
     return ride;
 }
 
+const ACTIVE = ['accepted', 'ongoing'];
+
 async function raiseAlert({ ride, raisedBy, reason, location, captain }) {
     const alert = await safetyAlertModel.create({
         ride: ride._id,
@@ -37,10 +41,102 @@ async function raiseAlert({ ride, raisedBy, reason, location, captain }) {
         reason,
         location: location?.lat != null ? { lat: location.lat, lng: location.lng } : undefined,
     });
-    // Placeholder for paging the 24/7 safety team (SMS / on-call integration).
+    // The team follows an active trip on the same live page trusted contacts use.
+    if (ACTIVE.includes(ride.status) && !ride.shareToken) {
+        await rideModel.updateOne(
+            { _id: ride._id, $or: [{ shareToken: { $exists: false } }, { shareToken: null }] },
+            { shareToken: crypto.randomBytes(16).toString('hex') }
+        );
+    }
+    // Shown on the admin "Safety alerts" screen; also pinged to the team chat if set up.
+    notifyTeam(alert);
     console.warn(`[SAFETY ALERT] ${reason} on ride ${ride._id} by ${raisedBy}`, alert.location || '');
     return alert;
 }
+
+// ---------- the team's "Safety alerts" screen (admin key) ----------
+
+const fullName = (person) => [person?.name?.firstname, person?.name?.lastname].filter(Boolean).join(' ');
+
+function alertView(alert) {
+    const ride = alert.ride || {};
+    const live = ACTIVE.includes(ride.status);
+    const [lng, lat] = alert.captain?.location?.coordinates || [];
+    const vehicle = alert.captain?.vehicle || {};
+    return {
+        id: alert._id,
+        reason: alert.reason,
+        label: LABELS[alert.reason] || alert.reason,
+        raisedBy: alert.raisedBy,
+        status: alert.status,
+        createdAt: alert.createdAt,
+        acknowledgedAt: alert.acknowledgedAt,
+        resolvedAt: alert.resolvedAt,
+        handledBy: alert.handledBy,
+        note: alert.note,
+        // Where the phone was when the alert was raised.
+        location: alert.location?.lat != null ? { lat: alert.location.lat, lng: alert.location.lng } : null,
+        ride: ride._id
+            ? { id: ride._id, status: ride.status, origin: ride.origin, destination: ride.destination, trackToken: live ? ride.shareToken : undefined }
+            : null,
+        rider: alert.user
+            ? { name: fullName(alert.user), phone: alert.user.phone, trustedContacts: (alert.user.trustedContacts || []).map(({ name, phone }) => ({ name, phone })) }
+            : null,
+        captain: alert.captain
+            ? {
+                name: fullName(alert.captain),
+                phone: alert.captain.phone,
+                plate: vehicle.plate,
+                vehicle: [vehicle.color, vehicle.model].filter(Boolean).join(' '),
+                // Latest position while the trip is on.
+                liveLocation: live && lat != null && !(lat === 0 && lng === 0) ? { lat, lng, at: alert.captain.lastSeenAt } : null,
+            }
+            : null,
+    };
+}
+
+module.exports.listAlerts = async (req, res) => {
+    const filter = req.query.status === 'all' ? {} : { status: { $in: ['open', 'acknowledged'] } };
+    const [alerts, openCount] = await Promise.all([
+        safetyAlertModel
+            .find(filter)
+            .sort({ createdAt: -1 })
+            .limit(100)
+            .populate('user', 'name phone trustedContacts')
+            .populate('captain', 'name phone vehicle location lastSeenAt')
+            .populate('ride', 'status origin destination shareToken'),
+        safetyAlertModel.countDocuments({ status: 'open' }),
+    ]);
+    res.json({ openCount, alerts: alerts.map(alertView) });
+};
+
+// "I'm on it" (acknowledge), then "Resolved" with a note of what happened.
+module.exports.updateAlert = async (req, res) => {
+    const { action } = req.body || {};
+    if (!['acknowledge', 'resolve'].includes(action)) {
+        return res.status(400).json({ message: 'action must be acknowledge or resolve' });
+    }
+    const note = typeof req.body.note === 'string' ? req.body.note.trim().slice(0, 500) : '';
+    const handledBy = typeof req.body.handledBy === 'string' ? req.body.handledBy.trim().slice(0, 40) : '';
+    if (action === 'resolve' && note.length < 3) {
+        return res.status(400).json({ message: 'Write a short note of what happened before resolving.', reason: 'note_required' });
+    }
+    if (!mongoose.isValidObjectId(req.params.alertId)) return res.status(404).json({ message: 'Alert not found' });
+
+    const now = new Date();
+    const update = action === 'acknowledge' ? { status: 'acknowledged', acknowledgedAt: now } : { status: 'resolved', resolvedAt: now, note };
+    if (handledBy) update.handledBy = handledBy;
+    const alert = await safetyAlertModel.findOneAndUpdate(
+        { _id: req.params.alertId, status: action === 'acknowledge' ? 'open' : { $ne: 'resolved' } },
+        { $set: update },
+        { returnDocument: 'after' }
+    );
+    if (!alert) {
+        const exists = await safetyAlertModel.exists({ _id: req.params.alertId });
+        return res.status(exists ? 409 : 404).json({ message: exists ? 'Someone has already handled this.' : 'Alert not found' });
+    }
+    res.json({ ok: true, status: alert.status });
+};
 
 async function strikeCaptain(captainId, { pause = false } = {}) {
     if (!captainId) return;

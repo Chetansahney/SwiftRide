@@ -26,6 +26,14 @@ const userSchema=new mongoose.Schema({
         match:[/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/,"Please enter a valid email address"]
     },
 
+    // 10-digit Indian mobile. Asked at sign-up (older accounts can add it on the
+    // Account page); the captain sees it only during this rider's ride.
+    // Not verified by SMS yet.
+    phone:{
+        type:String,
+        match:[/^[6-9]\d{9}$/, "Enter a 10-digit Indian mobile number"]
+    },
+
     password:{
         type:String,
         required:true,

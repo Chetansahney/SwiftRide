@@ -1,7 +1,7 @@
 import React, { useContext, useEffect, useState } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
-import { BadgeCheck, ChevronRight, Clock, Power, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { BadgeCheck, ChevronRight, Clock, Phone, Power, ShieldAlert, ShieldCheck, Smartphone, X } from 'lucide-react';
 import { CaptainDataContext } from '../context/CaptainContext';
 import VehicleArt from './ui/VehicleArt';
 import NumberPlate from './ui/NumberPlate';
@@ -10,6 +10,11 @@ import CaptainSafetySettings from './captain/CaptainSafetySettings';
 import { useLanguage } from '../i18n/LanguageContext';
 import { formatFare, vehicleMeta } from '../lib/config';
 import { API, captainAuth } from '../lib/api';
+import useKeepAwake from '../lib/useKeepAwake';
+
+// Hidden for longer than this, the captain has probably missed ride offers
+// (each one waits 15 s, and 2 minutes without location means offline).
+const AWAY_NOTICE_MS = 30 * 1000;
 
 const CaptainDetails = () => {
     const { t } = useLanguage();
@@ -75,6 +80,9 @@ const CaptainDetails = () => {
     const status = verification?.status;
     const shift = verification?.shift;
     const strikes = captain?.strikes || 0;
+    // Online = can be offered rides right now.
+    const online = status === 'verified' && shift?.status === 'verified' && !captain?.suspended;
+    const { screenOn, awayMs, clearAway } = useKeepAwake(online);
     const statTiles = [
         { label: t('captain.earnings'), value: stats ? formatFare(stats.today.earnings) : '--' },
         { label: t('captain.ridesToday'), value: stats?.today.rides ?? '--' },
@@ -116,6 +124,36 @@ const CaptainDetails = () => {
                 </div>
             )}
 
+            {online ? (
+                <div
+                    className={`flex items-start gap-3 rounded-[14px] px-4 py-3 text-xs font-semibold leading-snug ${screenOn ? 'bg-night-card text-night-muted' : 'bg-[#3A2F0B] text-[#FFE08A]'}`}
+                    role="note"
+                >
+                    <Smartphone size={18} className="mt-px shrink-0" aria-hidden="true" />
+                    <span>{t(screenOn ? 'captain.screenOn' : 'captain.keepOpen')}</span>
+                </div>
+            ) : null}
+            {online && awayMs >= AWAY_NOTICE_MS ? (
+                <div className="flex items-start gap-3 rounded-[14px] bg-volt px-4 py-3 text-ink" role="alert">
+                    <span className="flex-1 text-sm font-semibold leading-snug">{t('captain.wasAway', { minutes: Math.max(1, Math.round(awayMs / 60000)) })}</span>
+                    <button type="button" onClick={clearAway} aria-label={t('account.cancel')} className="-mr-2 -mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full">
+                        <X size={18} aria-hidden="true" />
+                    </button>
+                </div>
+            ) : null}
+
+            {captain && !captain.phone ? (
+                <button
+                    type="button"
+                    onClick={() => setSettingsOpen(true)}
+                    className="flex min-h-14 items-center gap-3 rounded-[14px] bg-night-card px-4 py-3 text-left text-sm font-semibold"
+                >
+                    <Phone size={20} className="shrink-0 text-volt" aria-hidden="true" />
+                    <span className="flex-1">{t('captain.phoneMissing')}</span>
+                    <ChevronRight size={20} aria-hidden="true" />
+                </button>
+            ) : null}
+
             {strikes > 0 && !captain?.suspended ? (
                 <p className="rounded-[14px] bg-night-card px-4 py-2.5 text-xs font-semibold text-[#FFB4B7]">{t('captain.strikes', { count: strikes })}</p>
             ) : null}
@@ -146,6 +184,18 @@ const CaptainDetails = () => {
             </div>
 
             {error ? <p className="text-xs text-[#FF8A8F]">{error}</p> : null}
+
+            <nav aria-label={t('legal.support')} className="flex flex-wrap justify-center gap-x-5 gap-y-1 pt-1 text-xs text-night-muted">
+                <Link to="/support" className="underline underline-offset-4">
+                    {t('legal.support')}
+                </Link>
+                <Link to="/terms" className="underline underline-offset-4">
+                    {t('legal.terms')}
+                </Link>
+                <Link to="/privacy" className="underline underline-offset-4">
+                    {t('legal.privacy')}
+                </Link>
+            </nav>
 
             {settingsOpen ? <CaptainSafetySettings open onClose={() => setSettingsOpen(false)} /> : null}
         </div>

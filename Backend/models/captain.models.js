@@ -22,6 +22,13 @@ const captainSchema = new mongoose.Schema({
         maxlength: 254,
         match: [/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/, "Please enter a valid email address"]
     },
+    // 10-digit Indian mobile. Asked at sign-up (older accounts can add it in
+    // settings); the rider sees it only while this captain is on their ride.
+    // Not verified by SMS yet.
+    phone: {
+        type: String,
+        match: [/^[6-9]\d{9}$/, "Enter a 10-digit Indian mobile number"]
+    },
     password: {
         type: String,
         required: true,
@@ -125,6 +132,16 @@ const captainSchema = new mongoose.Schema({
         submittedAt: Date,
         decidedAt: Date,
         decidedBy: { type: String, enum: ['auto', 'admin'] },
+        // What the face engine alone would have decided. While every captain is
+        // reviewed by a person, a clear match still waits for them.
+        engineDecision: { type: String, enum: ['verified', 'in_review', 'rejected'] },
+        // Ticked by the reviewer after seeing the original papers in person.
+        documentChecks: {
+            licence: Boolean,
+            vehicle: Boolean,
+            police: Boolean,
+            at: Date,
+        },
         dl: {
             last4: String,
             numberHash: { type: String, select: false },

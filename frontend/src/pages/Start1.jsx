@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { GuaranteePill, LanguagePicker, Logo } from '../components/ui/Brand';
 import { useLanguage } from '../i18n/LanguageContext';
 import { FEATURES } from '../lib/config';
+import LinkedText from '../components/ui/LinkedText';
 
 const Start = () => {
     const { t } = useLanguage();
@@ -48,7 +49,23 @@ const Start = () => {
                     >
                         {t('welcome.drive')}
                     </Link>
-                    <p className="mt-1 text-center text-xs text-[#8A8F99]">{t('welcome.terms')}</p>
+                    <p className="mt-1 text-center text-xs text-[#8A8F99]">
+                        <LinkedText
+                            text={t('welcome.terms')}
+                            parts={{
+                                terms: (
+                                    <Link to="/terms" className="whitespace-nowrap underline underline-offset-2">
+                                        {t('legal.termsInline')}
+                                    </Link>
+                                ),
+                                privacy: (
+                                    <Link to="/privacy" className="whitespace-nowrap underline underline-offset-2">
+                                        {t('legal.privacy')}
+                                    </Link>
+                                ),
+                            }}
+                        />
+                    </p>
                 </div>
             </div>
         </div>

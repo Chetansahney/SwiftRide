@@ -3,7 +3,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { UserDataContext } from '../context/UserContext';
 import AuthLayout, { FormError } from '../components/ui/AuthLayout';
+import PhoneField from '../components/ui/PhoneField';
+import ConsentCheckbox from '../components/ui/ConsentCheckbox';
 import { useLanguage } from '../i18n/LanguageContext';
+import { isIndianMobile, normalizePhone } from '../lib/config';
 
 const Usersignup = () => {
     const { t } = useLanguage();
@@ -11,6 +14,8 @@ const Usersignup = () => {
     const [password, setPassword] = useState('');
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
+    const [phone, setPhone] = useState('');
+    const [agreed, setAgreed] = useState(false);
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const navigate = useNavigate();
@@ -18,11 +23,20 @@ const Usersignup = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (!isIndianMobile(phone)) {
+            setError(t('auth.phoneInvalid'));
+            return;
+        }
+        if (!agreed) {
+            setError(t('auth.mustAgree'));
+            return;
+        }
         setError('');
         setSubmitting(true);
         const newUser = {
             name: { firstname: firstName, lastname: lastName },
             email,
+            phone: normalizePhone(phone),
             password,
         };
         try {
@@ -63,11 +77,17 @@ const Usersignup = () => {
                     {t('auth.email')}
                 </label>
                 <input id="email" required className="field mb-5" type="email" autoComplete="email" placeholder="email@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <label className="label" htmlFor="phone">
+                    {t('auth.phone')}
+                </label>
+                <PhoneField id="phone" required value={phone} onChange={setPhone} describedBy="phoneHint" />
+                <span id="phoneHint" className="mb-5 mt-1.5 text-xs text-muted">{t('auth.phoneHintRider')}</span>
                 <label className="label" htmlFor="password">
                     {t('auth.password')}
                 </label>
                 <input id="password" required minLength={8} maxLength={72} pattern="(?=.*[A-Za-z])(?=.*\d).{8,72}" title={t('auth.passwordHint')} aria-describedby="passwordHint" className="field" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
-                <span id="passwordHint" className="mb-7 mt-1.5 text-xs text-muted">{t('auth.passwordHint')}</span>
+                <span id="passwordHint" className="mb-6 mt-1.5 text-xs text-muted">{t('auth.passwordHint')}</span>
+                <ConsentCheckbox checked={agreed} onChange={setAgreed} />
                 <button className="btn-primary" disabled={submitting}>
                     {submitting ? t('loading') : t('auth.signup')}
                 </button>

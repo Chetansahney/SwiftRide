@@ -71,13 +71,13 @@ test('MongoDB operator injection is rejected', async () => {
 });
 
 test('sign-up: weak passwords refused, duplicate email is 409, emails are case-insensitive', async () => {
-    const weak = await api().post('/users/register').send({ name: { firstname: 'Asha' }, email: 'w@example.test', password: 'short' });
+    const weak = await api().post('/users/register').send({ name: { firstname: 'Asha' }, email: 'w@example.test', phone: '9876543210', password: 'short' });
     assert.equal(weak.status, 400);
-    const noDigit = await api().post('/users/register').send({ name: { firstname: 'Asha' }, email: 'w@example.test', password: 'longbutnodigits' });
+    const noDigit = await api().post('/users/register').send({ name: { firstname: 'Asha' }, email: 'w@example.test', phone: '9876543210', password: 'longbutnodigits' });
     assert.equal(noDigit.status, 400);
     const r = await rider({ email: 'Mixed.Case@Example.test' });
     assert.equal(r.user.email, 'mixed.case@example.test');
-    const dup = await api().post('/users/register').send({ name: { firstname: 'Asha' }, email: 'MIXED.case@example.test', password: 'safe-pass-123' });
+    const dup = await api().post('/users/register').send({ name: { firstname: 'Asha' }, email: 'MIXED.case@example.test', phone: '9876543210', password: 'safe-pass-123' });
     assert.equal(dup.status, 409);
 });
 

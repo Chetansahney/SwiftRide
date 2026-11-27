@@ -16,6 +16,7 @@ import Account from './pages/Account';
 import TrackTrip from './pages/TrackTrip';
 import CaptainVerify from './pages/CaptainVerify';
 import AdminReview from './pages/AdminReview';
+import { PrivacyPage, SupportPage, TermsPage } from './pages/Legal';
 const App = () => {
   return (
     <div className="h-full">
@@ -42,6 +43,10 @@ const App = () => {
             <Riding />
           </UserProtectWrapper>
         } />
+        {/* Public: help, and the draft Terms and Privacy Policy. */}
+        <Route path="/support" element={<SupportPage />} />
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
         {/* Public: live trip link shared with trusted contacts (no login). */}
         <Route path="/track/:token" element={<TrackTrip />} />
 

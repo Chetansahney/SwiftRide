@@ -3,9 +3,11 @@ import axios from 'axios';
 import { BadgeCheck, Clock, Lock } from 'lucide-react';
 import BottomSheet from '../ui/BottomSheet';
 import WomanIcon from '../ui/WomanIcon';
+import PhoneField from '../ui/PhoneField';
 import { CaptainDataContext } from '../../context/CaptainContext';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { API, captainAuth } from '../../lib/api';
+import { isIndianMobile, normalizePhone } from '../../lib/config';
 
 const GENDERS = [
     { value: 'female', key: 'captain.genderWoman' },
@@ -21,6 +23,7 @@ export default function CaptainSafetySettings({ open, onClose }) {
     const { captain, setCaptain } = useContext(CaptainDataContext);
     const [gender, setGender] = useState(captain?.gender || '');
     const [womenOnly, setWomenOnly] = useState(Boolean(captain?.womenRidersOnly));
+    const [phone, setPhone] = useState(captain?.phone || '');
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
 
@@ -30,11 +33,16 @@ export default function CaptainSafetySettings({ open, onClose }) {
     const womanStatus = confirmed ? null : check === 'in_review' ? 'captain.womanReview' : check === 'rejected' ? 'captain.womanRejected' : 'captain.womanAfterVerify';
 
     const save = async () => {
+        if (phone && !isIndianMobile(phone)) {
+            setError(t('auth.phoneInvalid'));
+            return;
+        }
         setSaving(true);
         setError('');
         try {
             const body = { womenRidersOnly: confirmed && womenOnly };
             if (!locked) body.gender = gender || null;
+            if (phone && normalizePhone(phone) !== captain?.phone) body.phone = normalizePhone(phone);
             const response = await axios.patch(`${API}/captains/settings`, body, captainAuth());
             setCaptain({ ...captain, ...response.data.captain });
             onClose();
@@ -47,6 +55,15 @@ export default function CaptainSafetySettings({ open, onClose }) {
 
     return (
         <BottomSheet open={open} onClose={onClose} title={t('captain.safetySettings')} dark>
+            <div className="flex flex-col gap-2">
+                <label htmlFor="captain-phone" className="text-sm font-semibold">
+                    {t('auth.phone')}
+                </label>
+                <PhoneField id="captain-phone" dark value={phone} onChange={setPhone} describedBy="captain-phone-hint" />
+                <span id="captain-phone-hint" className="text-xs text-night-muted">
+                    {t('auth.phoneHintCaptain')}
+                </span>
+            </div>
             <div role="radiogroup" aria-label={t('captain.gender')} aria-disabled={locked} className="flex flex-col gap-2">
                 <span className="text-sm font-semibold">{t('captain.gender')}</span>
                 {GENDERS.map((option) => (

@@ -4,7 +4,7 @@ const captainController = require('../controllers/captain.controller');
 const verificationController = require('../controllers/verification.controller');
 const { authCaptain } = require('../middleware/auth.middleware');
 const { authLimiter, faceLimiter } = require('../middleware/security.middleware');
-const { passwordRule, emailRule, nameRule, loginRules, validate } = require('../utils/validators');
+const { passwordRule, emailRule, nameRule, phoneRule, loginRules, validate } = require('../utils/validators');
 const { PLATE_PATTERN, normalise } = require('../services/verificationProvider');
 
 const router = express.Router();
@@ -14,6 +14,7 @@ router.post('/register',
     nameRule('name.firstname'),
     nameRule('name.lastname', { optional: true }),
     emailRule(),
+    phoneRule(),
     passwordRule(),
     body('vehicle.color').isString().trim().isLength({ min: 2, max: 30 }).withMessage('Vehicle color is required'),
     body('vehicle.model').isString().trim().isLength({ min: 2, max: 40 }).withMessage('Vehicle model is required'),
@@ -43,6 +44,7 @@ router.patch('/settings',
     authCaptain,
     body('gender').optional({ values: 'null' }).isIn(['female', 'male', 'other', '']).withMessage('Gender must be female, male or other'),
     body('womenRidersOnly').optional().isBoolean(),
+    phoneRule('phone', { optional: true }),
     validate,
     captainController.updateSettings
 );

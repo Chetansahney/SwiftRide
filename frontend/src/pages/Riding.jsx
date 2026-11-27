@@ -81,21 +81,26 @@ const Riding = () => {
         const reason = monitor.trigger;
         monitor.clear();
         if (!ride?._id) return;
-        riderPost(`/rides/${ride._id}/check-in`, { reason, response, location: position || undefined }).catch(() => {});
-        if (response !== 'ok') {
-            setAlertNotice(t('safety.alertSent'));
-            if (response === 'help') setSosOpen(true);
+        const sent = riderPost(`/rides/${ride._id}/check-in`, { reason, response, location: position || undefined });
+        if (response === 'ok') {
+            sent.catch(() => {});
+            return;
         }
+        if (response === 'help') setSosOpen(true);
+        // Say "alerted" only once the server has the alert.
+        sent.then(() => setAlertNotice(t('safety.alertSent'))).catch(() => setAlertNotice(t('safety.alertFailed')));
     };
 
     const answerReached = (safe) => {
         setAskReached(false);
         if (!ride?._id) return;
-        riderPost(`/rides/${ride._id}/reached`, { safe, location: position || undefined }).catch(() => {});
-        if (!safe) {
-            setAlertNotice(t('safety.alertSent'));
-            setSosOpen(true);
+        const sent = riderPost(`/rides/${ride._id}/reached`, { safe, location: position || undefined });
+        if (safe) {
+            sent.catch(() => {});
+            return;
         }
+        setSosOpen(true);
+        sent.then(() => setAlertNotice(t('safety.alertSent'))).catch(() => setAlertNotice(t('safety.alertFailed')));
     };
 
     const pay = async () => {

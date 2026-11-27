@@ -7,11 +7,12 @@ const { isConfirmedWoman } = require('../utils/womenSafety');
 const ACTIVE = ['accepted', 'ongoing'];
 
 module.exports.register = async (req, res) => {
-    const { name, email, password, vehicle, gender } = req.body;
+    const { name, email, phone, password, vehicle, gender } = req.body;
     try {
         const captain = await captainModel.create({
             name: { firstname: name.firstname, lastname: name.lastname || undefined },
             email,
+            phone,
             password: await captainModel.hashPassword(password),
             gender: ['female', 'male', 'other'].includes(gender) ? gender : undefined,
             vehicle: {
@@ -78,6 +79,7 @@ module.exports.deleteAccount = async (req, res) => {
 module.exports.updateSettings = async (req, res) => {
     const current = req.captain;
     const updates = {};
+    if (req.body.phone) updates.phone = req.body.phone;
     if (req.body.gender !== undefined && (req.body.gender || undefined) !== current.gender) {
         // Gender is part of the identity check; after it, only the team can change it,
         // so nobody can switch to "female" later to get women-only rides.

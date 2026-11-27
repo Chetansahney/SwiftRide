@@ -79,3 +79,23 @@ export function isLateEvening(date = new Date()) {
     const istHour = (date.getUTCHours() + 5.5 + date.getUTCMinutes() / 60) % 24;
     return istHour >= 21 || istHour < 6;
 }
+
+// Indian mobile numbers, as the backend stores them: 10 digits starting 6–9.
+// "+91 98765 43210" / "098765 43210" → "9876543210"
+export const normalizePhone = (value) => String(value ?? '').replace(/\D/g, '').replace(/^(91|0)(?=\d{10}$)/, '');
+export const isIndianMobile = (value) => /^[6-9]\d{9}$/.test(normalizePhone(value));
+export const telLink = (phone) => `tel:+91${normalizePhone(phone)}`;
+
+// Contact details shown on the Help, Terms and Privacy pages. Set them in the
+// frontend's environment (Vercel → Settings → Environment Variables); until
+// then the pages show a visible "To be added" placeholder.
+export const SUPPORT = {
+    company: import.meta.env.VITE_COMPANY_NAME || '',
+    address: import.meta.env.VITE_COMPANY_ADDRESS || '',
+    email: import.meta.env.VITE_SUPPORT_EMAIL || '',
+    phone: import.meta.env.VITE_SUPPORT_PHONE || '',
+    grievanceName: import.meta.env.VITE_GRIEVANCE_OFFICER || '',
+    grievanceEmail: import.meta.env.VITE_GRIEVANCE_EMAIL || '',
+    // The city whose courts handle disputes (Terms of Use).
+    city: import.meta.env.VITE_LEGAL_CITY || '',
+};

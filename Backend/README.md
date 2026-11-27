@@ -27,8 +27,28 @@ CORS_ORIGINS=https://swiftride-red.vercel.app
 # ROUTE_TRAFFIC_FACTOR=1.6
 # Licence/vehicle checks. Only "test" exists until a DigiLocker/KYC provider is signed up.
 VERIFICATION_PROVIDER=test
-# Long random string; reviewers enter it on /admin/review. Admin routes are off without it.
+# Long random string; the team enters it on /admin/review. Admin routes are off without it.
 ADMIN_KEY=your_admin_key
+# Leave unset: a person approves every new captain. "true" lets a clear face match approve on its own
+# (only once real licence and vehicle checks are connected).
+# VERIFICATION_AUTO_APPROVE=true
+# Optional: a Slack, Discord or Google Chat incoming-webhook URL. Each safety alert pings it
+# (alert type and time only) so it reaches the team's phones.
+# SAFETY_WEBHOOK_URL=https://hooks.slack.com/services/...
+# The website's address, used for the link in that ping (defaults to the first CORS_ORIGINS entry).
+# APP_URL=https://swiftride-red.vercel.app
+```
+
+The website reads its contact details for the Help, Terms and Privacy pages from its own settings (Vercel → Environment Variables). Until they're set, the pages show a highlighted "[To be added]":
+
+```
+VITE_COMPANY_NAME=Your company's legal name
+VITE_COMPANY_ADDRESS=Registered address
+VITE_SUPPORT_EMAIL=support@yourdomain
+VITE_SUPPORT_PHONE=+91 ...
+VITE_GRIEVANCE_OFFICER=Name of the grievance officer
+VITE_GRIEVANCE_EMAIL=grievance@yourdomain
+VITE_LEGAL_CITY=City whose courts handle disputes
 ```
 
 ## Maps (no Google, no billing)
@@ -64,6 +84,14 @@ ADMIN_KEY=your_admin_key
   - **Estimates are marked:** any estimated ETA is shown with "~".
   - **Caching:** road times are cached for 30 s.
 
+## Pilot safety and contact
+
+- **Every new captain is checked by a person.** The licence and vehicle checks only test number formats until a DigiLocker or KYC provider is connected. So even a clear face match waits at `/admin/review`, where the reviewer calls the captain, sees the original licence, RC, insurance, fitness, permit and police verification, and must tick all three checks before Approve works (the server refuses approval otherwise). Women-captain confirmations also go to a person.
+- **Safety alerts reach the team.** SOS presses, silent alerts, unanswered or "I need help" check-ins, "I don't feel safe" and wrong-driver reports appear on the **Safety alerts** tab of `/admin/review`. It refreshes every 10 seconds, beeps and shows a pop-up for new alerts, and gives one-tap calls to the rider, their trusted contacts and the captain, plus the live trip link and map points. The team marks an alert "I'm on it", then resolves it with a note of what happened. With `SAFETY_WEBHOOK_URL` set, each alert also pings the team chat, without names, numbers or places. The rider app says plainly that alerts go to the SwiftRide team and that 112 is the fastest help, and it only says "sent" once the server has the alert.
+- **Phone numbers:** asked at sign-up (10-digit Indian mobile, not yet verified by SMS). Rider and captain see each other's number only from accept until the ride ends; ride offers, history and share links never include it.
+- **Keeping captains online:** while a captain is online or on a trip, the app keeps the phone screen on (Screen Wake Lock), shows a "keep SwiftRide open" reminder where the phone refuses, and says so when the app was in the background long enough to miss offers.
+- **Legal pages:** `/terms`, `/privacy` and `/support` are drafts written from what the app does today, marked "Draft for legal review". Have a lawyer check them before public launch.
+
 ## Security
 
 - **Logins:** tokens carry the account's role (rider or captain) and a version number. Logging out, changing a password or "log out on all devices" revokes them. Logged-out tokens are stored only as hashes. Logins never reveal whether an email has an account.
@@ -75,7 +103,7 @@ ADMIN_KEY=your_admin_key
 
 ## Tests
 
-`npm test` runs 36 tests against a throwaway in-memory MongoDB, covering security, the ride lifecycle, sockets, ratings and Ride Guarantee. Google Maps is stubbed. GitHub Actions (`.github/workflows/ci.yml`) runs them, plus a dependency audit and the frontend lint and build, on every push.
+`npm test` runs 77 tests against a throwaway in-memory MongoDB, covering security, the ride lifecycle, sockets, dispatch, the face engine, ratings, Ride Guarantee and the pilot checks (phone numbers, manual review, safety alerts). Map services are stubbed. GitHub Actions (`.github/workflows/ci.yml`) runs them, plus a dependency audit and the frontend lint and build, on every push.
 
 ## Captain verification
 
@@ -86,7 +114,7 @@ ADMIN_KEY=your_admin_key
   - **asks for a retake instead of guessing** when a photo is too unclear to fingerprint;
   - **checks liveness** from the mesh geometry: the right action, in the right order, by the same person, with no repeated photos, plus an anti-spoof score.
 
-  The result is `verified`, `in_review` (a person checks it at `/admin/review`) or `rejected` with reasons.
+  The engine's answer is `verified`, `in_review` or `rejected` with reasons. A rejection stands; anything else waits for a person at `/admin/review` (see "Pilot safety and contact"), unless `VERIFICATION_AUTO_APPROVE=true`.
 - **Every shift window** (`POST /captains/shift-selfie`): 6 AM–2 PM, 2 PM–10 PM, 10 PM–6 AM India time (`utils/shiftWindow.js`). The captain takes 2 live photos: straight, then one random action. They're matched against a gallery of the captain's last 5 verified selfies, so beards, glasses and ageing are handled, while staying close to the original verified face and the licence, so the gallery can't drift to someone else. Captains only get ride requests when verified and this window's check has matched.
 - **Privacy:** the licence number is stored only as a keyed hash plus its last 4 digits. Photos are kept only until a reviewer decides. Face fingerprints are never sent to clients.
 - **Thresholds** live in `config/faceThresholds.json`. Before launch, collect real licence and selfie pairs (with consent) in `calibration-data/<person>/`, which is git-ignored. Then run `npm run face:calibrate -- calibration-data --write`. It reports how well the engine separates people and rewrites the thresholds. It won't raise the auto-approve line above 0.50 until it has at least 20,000 different-person pairs.
@@ -95,11 +123,11 @@ ADMIN_KEY=your_admin_key
 
 ### User
 - `name.firstname`, `name.lastname`
-- `email`, `password`, `socketId`
+- `email`, `phone`, `password`, `socketId`
 
 ### Captain
 - `name.firstname`, `name.lastname`
-- `email`, `password`, `socketId`, `status`
+- `email`, `phone`, `password`, `socketId`, `status`
 - `vehicle.color`, `vehicle.model`, `vehicle.plate`, `vehicle.capacity`, `vehicle.vehicleType`
 - `location` (GeoJSON Point)
 
@@ -217,6 +245,7 @@ If you run the backend locally with default settings:
     "lastname": "Sahney"
   },
   "email": "chetan@example.com",
+  "phone": "98765 43210",
   "password": "mypassword123"
 }
 ```
@@ -228,7 +257,8 @@ If you run the backend locally with default settings:
 | `name.firstname` | string | Yes | Minimum length: 3 |
 | `name.lastname` | string | No | If provided, minimum length: 3 (schema-level) |
 | `email` | string | Yes | Must be a valid email |
-| `password` | string | Yes | Minimum length: 6 |
+| `phone` | string | Yes | 10-digit Indian mobile starting 6–9; `+91`, a leading `0`, spaces and dashes are removed |
+| `password` | string | Yes | 8–72 characters, with a letter and a number |
 
 ## Responses
 

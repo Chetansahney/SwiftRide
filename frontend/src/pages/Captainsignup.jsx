@@ -4,7 +4,10 @@ import axios from 'axios';
 import { CaptainDataContext } from '../context/CaptainContext';
 import AuthLayout, { FormError } from '../components/ui/AuthLayout';
 import VehicleArt from '../components/ui/VehicleArt';
+import PhoneField from '../components/ui/PhoneField';
+import ConsentCheckbox from '../components/ui/ConsentCheckbox';
 import { useLanguage } from '../i18n/LanguageContext';
+import { isIndianMobile, normalizePhone } from '../lib/config';
 
 // Captains pick their vehicle by picture. Values match the backend's enum.
 const TYPES = [
@@ -20,6 +23,8 @@ const Captainsignup = () => {
     const [password, setPassword] = useState('');
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
+    const [phone, setPhone] = useState('');
+    const [agreed, setAgreed] = useState(false);
     const [vehicleColor, setVehicleColor] = useState('');
     const [vehicleModel, setVehicleModel] = useState('');
     const [vehiclePlate, setVehiclePlate] = useState('');
@@ -32,8 +37,16 @@ const Captainsignup = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (!isIndianMobile(phone)) {
+            setError(t('auth.phoneInvalid'));
+            return;
+        }
         if (!vehicleType) {
             setError(t('auth.vehicleType'));
+            return;
+        }
+        if (!agreed) {
+            setError(t('auth.mustAgree'));
             return;
         }
         setError('');
@@ -42,6 +55,7 @@ const Captainsignup = () => {
             gender: gender || undefined,
             name: { firstname: firstName, lastname: lastName },
             email,
+            phone: normalizePhone(phone),
             password,
             vehicle: {
                 color: vehicleColor,
@@ -89,6 +103,11 @@ const Captainsignup = () => {
                     {t('auth.email')}
                 </label>
                 <input id="email" required className="field mb-5" type="email" autoComplete="email" placeholder="email@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <label className="label" htmlFor="phone">
+                    {t('auth.phone')}
+                </label>
+                <PhoneField id="phone" required value={phone} onChange={setPhone} describedBy="phoneHint" />
+                <span id="phoneHint" className="mb-5 mt-1.5 text-xs text-muted">{t('auth.phoneHintCaptain')}</span>
                 <label className="label" htmlFor="password">
                     {t('auth.password')}
                 </label>
@@ -161,6 +180,7 @@ const Captainsignup = () => {
                         <input id="capacity" required min={1} className="field" type="number" inputMode="numeric" value={vehicleCapacity} onChange={(e) => setVehicleCapacity(e.target.value)} />
                     </div>
                 </div>
+                <ConsentCheckbox checked={agreed} onChange={setAgreed} />
                 <button className="btn-primary" disabled={submitting}>
                     {submitting ? t('loading') : t('auth.createCaptain')}
                 </button>

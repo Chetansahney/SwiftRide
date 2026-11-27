@@ -3,15 +3,15 @@ const { body } = require('express-validator');
 const userController = require('../controllers/user.controllers');
 const { authUser } = require('../middleware/auth.middleware');
 const { authLimiter } = require('../middleware/security.middleware');
-const { passwordRule, emailRule, nameRule, loginRules, validate } = require('../utils/validators');
+const { passwordRule, emailRule, nameRule, phoneRule, normalizePhone, loginRules, validate } = require('../utils/validators');
 
 const router = express.Router();
 
-router.post('/register', authLimiter, nameRule('name.firstname'), nameRule('name.lastname', { optional: true }), emailRule(), passwordRule(), validate, userController.register);
+router.post('/register', authLimiter, nameRule('name.firstname'), nameRule('name.lastname', { optional: true }), emailRule(), phoneRule(), passwordRule(), validate, userController.register);
 router.post('/login', authLimiter, loginRules, validate, userController.login);
 
 router.get('/profile', authUser, userController.getUserProfile);
-router.patch('/profile', authUser, nameRule('name.firstname', { optional: true }), nameRule('name.lastname', { optional: true }), emailRule().optional(), validate, userController.updateUserProfile);
+router.patch('/profile', authUser, nameRule('name.firstname', { optional: true }), nameRule('name.lastname', { optional: true }), emailRule().optional(), phoneRule('phone', { optional: true }), validate, userController.updateUserProfile);
 router.delete('/profile', authUser, userController.deleteAccount);
 
 // POST is the safe method; GET stays for the existing app until it's updated.
@@ -32,9 +32,6 @@ router.put('/places',
     validate,
     userController.updatePlaces
 );
-
-// "+91 98765 43210" / "098765 43210" → "9876543210"
-const normalizePhone = (value) => String(value || '').replace(/\D/g, '').replace(/^(91|0)(?=\d{10}$)/, '');
 
 router.patch('/safety',
     authUser,

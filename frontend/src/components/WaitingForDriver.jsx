@@ -6,7 +6,7 @@ import WomanIcon from './ui/WomanIcon';
 import FareLockedBanner from './safety/FareLockedBanner';
 import CancelRideButton from './CancelRideButton';
 import { useLanguage } from '../i18n/LanguageContext';
-import { FREE_WAIT_MIN, WAIT_PER_MIN, formatFare, shortPlace, vehicleMeta } from '../lib/config';
+import { FREE_WAIT_MIN, WAIT_PER_MIN, formatFare, shortPlace, telLink, vehicleMeta } from '../lib/config';
 import { currentPosition, riderPost } from '../lib/api';
 
 function useFreeWaitLeft(arrivedAt) {
@@ -166,7 +166,7 @@ const WaitingForDriver = ({ ride, otp, setWaitingForDriver, onShare, onReport, o
 
             <div className={`grid gap-2 ${captain?.phone ? 'grid-cols-4' : 'grid-cols-3'}`}>
                 {captain?.phone ? (
-                    <a href={`tel:${captain.phone}`} className="flex h-16 flex-col items-center justify-center gap-1 rounded-[14px] bg-ink text-xs font-semibold text-white">
+                    <a href={telLink(captain.phone)} className="flex h-16 flex-col items-center justify-center gap-1 rounded-[14px] bg-ink text-xs font-semibold text-white">
                         <Phone size={18} className="text-volt" aria-hidden="true" />
                         {t('ride.call')}
                     </a>

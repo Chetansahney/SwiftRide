@@ -1,14 +1,15 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
-import { Briefcase, ChevronLeft, House, LogOut, MapPin, Pencil, Plus, Star, Trash2 } from 'lucide-react';
+import { Briefcase, ChevronLeft, House, LifeBuoy, LogOut, MapPin, Pencil, Phone, Plus, Star, Trash2 } from 'lucide-react';
 import { UserDataContext } from '../context/UserContext';
 import { useLanguage } from '../i18n/LanguageContext';
 import { LANGUAGES } from '../i18n/strings';
 import { LanguagePicker } from '../components/ui/Brand';
 import { FormError } from '../components/ui/AuthLayout';
 import VehicleArt from '../components/ui/VehicleArt';
-import { formatFare, isCoordinatePair, shortPlace, vehicleMeta } from '../lib/config';
+import PhoneField from '../components/ui/PhoneField';
+import { formatFare, isCoordinatePair, isIndianMobile, normalizePhone, shortPlace, vehicleMeta } from '../lib/config';
 import { addCustomPlace, clearPlaces, getSavedPlaces, removeCustomPlace, removePlace, savePlace } from '../lib/places';
 import SavePlaceSheet from '../components/SavePlaceSheet';
 import SafetySettings from '../components/safety/SafetySettings';
@@ -42,7 +43,7 @@ const Account = () => {
     const { user, setUser } = useContext(UserDataContext);
     const [rides, setRides] = useState(null);
     const [editing, setEditing] = useState(false);
-    const [form, setForm] = useState({ firstname: '', lastname: '', email: '' });
+    const [form, setForm] = useState({ firstname: '', lastname: '', email: '', phone: '' });
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState({ type: '', text: '' });
     const [savedPlaces, setSavedPlaces] = useState(getSavedPlaces);
@@ -103,6 +104,7 @@ const Account = () => {
             firstname: user?.name?.firstname || '',
             lastname: user?.name?.lastname || '',
             email: user?.email || '',
+            phone: user?.phone || '',
         });
         setMessage({ type: '', text: '' });
         setEditing(true);
@@ -110,12 +112,20 @@ const Account = () => {
 
     const saveProfile = async (e) => {
         e.preventDefault();
+        if (form.phone && !isIndianMobile(form.phone)) {
+            setMessage({ type: 'error', text: t('auth.phoneInvalid') });
+            return;
+        }
         setSaving(true);
         setMessage({ type: '', text: '' });
         try {
             const response = await axios.patch(
                 `${API}/users/profile`,
-                { name: { firstname: form.firstname, lastname: form.lastname }, email: form.email },
+                {
+                    name: { firstname: form.firstname, lastname: form.lastname },
+                    email: form.email,
+                    phone: form.phone ? normalizePhone(form.phone) : undefined,
+                },
                 { headers: authHeaders() }
             );
             setUser(response.data);
@@ -246,11 +256,18 @@ const Account = () => {
                                 id="acc-email"
                                 required
                                 type="email"
-                                className="field mb-5"
+                                className="field mb-4"
                                 value={form.email}
                                 onChange={(e) => setForm({ ...form, email: e.target.value })}
                                 autoComplete="email"
                             />
+                            <label className="label" htmlFor="acc-phone">
+                                {t('auth.phone')}
+                            </label>
+                            <PhoneField id="acc-phone" value={form.phone} onChange={(phone) => setForm({ ...form, phone })} describedBy="acc-phone-hint" />
+                            <span id="acc-phone-hint" className="mb-5 mt-1.5 text-xs text-muted">
+                                {t('auth.phoneHintRider')}
+                            </span>
                             <div className="grid grid-cols-2 gap-2">
                                 <button type="button" onClick={() => setEditing(false)} className="btn-ghost">
                                     {t('account.cancel')}
@@ -268,8 +285,21 @@ const Account = () => {
                             <dd className="font-semibold">{user?.name?.lastname || '—'}</dd>
                             <dt className="text-muted">{t('auth.email')}</dt>
                             <dd className="truncate font-semibold">{user?.email || '—'}</dd>
+                            <dt className="text-muted">{t('auth.phone')}</dt>
+                            <dd className="font-semibold">{user?.phone ? `+91 ${user.phone.slice(0, 5)} ${user.phone.slice(5)}` : '—'}</dd>
                         </dl>
                     )}
+                    {!editing && user && !user.phone ? (
+                        <button
+                            type="button"
+                            onClick={startEditing}
+                            className="flex min-h-14 items-center gap-3 rounded-[14px] bg-volt px-4 py-3 text-left text-sm font-semibold text-ink"
+                        >
+                            <Phone size={20} className="shrink-0" aria-hidden="true" />
+                            <span className="flex-1">{t('account.phoneMissing')}</span>
+                            <span className="shrink-0 underline underline-offset-4">{t('account.addPhone')}</span>
+                        </button>
+                    ) : null}
                 </Section>
 
                 <Section title={t('account.history')}>
@@ -395,6 +425,21 @@ const Account = () => {
                 <Section title={t('account.password')}>
                     <AccountSecurity onLoggedOut={() => window.location.replace('/Userlogin')} />
                 </Section>
+
+                <nav aria-label={t('legal.support')} className="flex flex-col gap-1 rounded-[24px] bg-white p-2">
+                    <Link to="/support" className="flex h-14 items-center gap-3 rounded-[16px] px-3 text-base font-semibold">
+                        <LifeBuoy size={20} aria-hidden="true" />
+                        {t('legal.support')}
+                    </Link>
+                    <div className="flex gap-4 px-3 pb-2 text-sm text-muted">
+                        <Link to="/terms" className="underline underline-offset-4">
+                            {t('legal.terms')}
+                        </Link>
+                        <Link to="/privacy" className="underline underline-offset-4">
+                            {t('legal.privacy')}
+                        </Link>
+                    </div>
+                </nav>
 
                 <Link to="/user/logout" className="btn-ghost gap-2 border-signal/30 text-signal">
                     <LogOut size={18} aria-hidden="true" />

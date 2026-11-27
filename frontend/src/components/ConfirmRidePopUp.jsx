@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
-import { Clock, MapPinCheck, X } from 'lucide-react';
+import { Clock, MapPinCheck, Phone, X } from 'lucide-react';
 import FareLockedBanner from './safety/FareLockedBanner';
 import RouteSummary from './RouteSummary';
 import CancelRideButton from './CancelRideButton';
 import { useLanguage } from '../i18n/LanguageContext';
-import { FREE_WAIT_MIN, WAIT_PER_MIN, formatFare } from '../lib/config';
+import { FREE_WAIT_MIN, WAIT_PER_MIN, formatFare, telLink } from '../lib/config';
 import { captainPost } from '../lib/api';
 
 const ConfirmRidePopUp = (props) => {
@@ -90,7 +90,18 @@ const ConfirmRidePopUp = (props) => {
                         <span className="text-xs text-night-muted">{t('ride.payCash')}</span>
                     </div>
                 </div>
-                <strong className="font-display text-xl font-semibold">{formatFare(props.ride?.fare)}</strong>
+                <div className="flex items-center gap-3">
+                    <strong className="font-display text-xl font-semibold">{formatFare(props.ride?.fare)}</strong>
+                    {props.ride?.user?.phone ? (
+                        <a
+                            href={telLink(props.ride.user.phone)}
+                            aria-label={t('captain.callRider', { name: riderName })}
+                            className="flex h-12 w-12 items-center justify-center rounded-full bg-volt text-ink"
+                        >
+                            <Phone size={20} aria-hidden="true" />
+                        </a>
+                    ) : null}
+                </div>
             </div>
 
             <FareLockedBanner fare={props.ride?.fare} role="captain" dark />

@@ -5,11 +5,12 @@ const accounts = require('../services/account.services');
 const ACTIVE = ['requested', 'accepted', 'ongoing'];
 
 module.exports.register = async (req, res) => {
-    const { name, email, password } = req.body;
+    const { name, email, phone, password } = req.body;
     try {
         const user = await userModel.create({
             name: { firstname: name.firstname, lastname: name.lastname || undefined },
             email,
+            phone,
             password: await userModel.hashPassword(password),
         });
         res.status(201).json({ user, token: user.generateAuthToken() });
@@ -50,11 +51,12 @@ module.exports.changePassword = async (req, res) => {
 };
 
 module.exports.updateUserProfile = async (req, res) => {
-    const { name, email } = req.body;
+    const { name, email, phone } = req.body;
     const updates = {};
     if (name?.firstname) updates['name.firstname'] = name.firstname;
     if (name && 'lastname' in name) updates['name.lastname'] = name.lastname || undefined;
     if (email) updates.email = email;
+    if (phone) updates.phone = phone;
     try {
         const user = await userModel.findByIdAndUpdate(req.user._id, { $set: updates }, { new: true, runValidators: true });
         res.status(200).json(user);

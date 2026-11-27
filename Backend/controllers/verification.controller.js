@@ -16,6 +16,14 @@ const FACE_SECRETS =
     '+verification.referenceEmbedding +verification.dlEmbedding +verification.referenceLandmarks ' +
     '+verification.referenceDescriptor +verification.dlDescriptor +verification.gallery';
 
+// The licence and vehicle checks only test number formats until a real
+// provider (DigiLocker or a licensed KYC partner) is connected, so a person
+// approves every new captain after seeing the original papers. A clear face
+// match can approve on its own only with VERIFICATION_AUTO_APPROVE=true.
+const autoApprove = () => process.env.VERIFICATION_AUTO_APPROVE === 'true';
+// What the reviewer must have seen in person before approving a captain.
+const DOCUMENT_CHECKS = ['licence', 'vehicle', 'police'];
+
 const isImage = (value) => typeof value === 'string' && value.length <= MAX_IMAGE_CHARS && IMAGE.test(value);
 const sha256 = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 
@@ -168,10 +176,13 @@ module.exports.submitVerification = async (req, res) => {
         return res.status(503).json({ message: 'Face check is unavailable right now. Please try again in a few minutes.' });
     }
 
-    const inReview = result.decision === 'in_review';
+    const manual = !autoApprove();
+    const decision = result.decision === 'verified' && manual ? 'in_review' : result.decision;
+    const inReview = decision === 'in_review';
     captain.verification = {
         ...base,
-        status: result.decision,
+        status: decision,
+        engineDecision: result.decision,
         reasons: result.reasons,
         failedStep: result.failedStep || undefined,
         decidedAt: inReview ? undefined : now,
@@ -187,8 +198,8 @@ module.exports.submitVerification = async (req, res) => {
         dlImage: inReview ? dlImage : undefined,
         selfieImage: inReview ? selfies[0] : undefined,
     };
-    if (result.decision !== 'rejected') {
-        captain.genderCheck = genderOutcome(captain.gender, result.gender, selfies[0]);
+    if (decision !== 'rejected') {
+        captain.genderCheck = genderOutcome(captain.gender, result.gender, selfies[0], { manual });
         if (captain.genderCheck.status !== 'verified') captain.womenRidersOnly = false;
     }
     await captain.save();
@@ -269,13 +280,14 @@ async function addToGallery(captainId, item) {
 }
 
 // Women captains are confirmed from the same live photos. Only a clear "woman"
-// confirms automatically; anything else is for a person to decide (the model
-// never rejects anyone's gender by itself).
-function genderOutcome(declared, estimate, photo) {
+// confirms automatically, and only when auto-approval is on; anything else is
+// for a person to decide (the model never rejects anyone's gender by itself).
+function genderOutcome(declared, estimate, photo, { manual = false } = {}) {
     if (declared !== 'female') return { status: 'not_needed' };
     const base = { estimate: estimate?.estimate, pFemale: estimate?.pFemale };
-    if (estimate?.estimate === 'female') return { ...base, status: 'verified', decidedBy: 'auto', decidedAt: new Date() };
-    return { ...base, status: 'in_review', reason: estimate?.estimate === 'male' ? 'model_disagrees' : 'unclear', image: photo };
+    if (estimate?.estimate === 'female' && !manual) return { ...base, status: 'verified', decidedBy: 'auto', decidedAt: new Date() };
+    const reason = estimate?.estimate === 'male' ? 'model_disagrees' : estimate?.estimate === 'female' ? 'manual_review' : 'unclear';
+    return { ...base, status: 'in_review', reason, image: photo };
 }
 
 // ---------- admin review ----------
@@ -285,7 +297,7 @@ module.exports.listReviews = async (req, res) => {
     const [identity, shifts, gender] = await Promise.all([
         captainModel
             .find({ 'verification.status': 'in_review' })
-            .select('name vehicle verification.submittedAt verification.reasons verification.face verification.dl.last4 verification.dl.name verification.dl.dob +verification.dlImage +verification.selfieImage')
+            .select('name phone gender vehicle verification.submittedAt verification.reasons verification.engineDecision verification.face verification.dl.last4 verification.dl.name verification.dl.dob +verification.dlImage +verification.selfieImage')
             .sort({ 'verification.submittedAt': 1 })
             .limit(50),
         captainModel
@@ -301,8 +313,12 @@ module.exports.listReviews = async (req, res) => {
         identity: identity.map((c) => ({
             captainId: c._id,
             name: c.name,
+            // So the reviewer can call them in to see the original papers.
+            phone: c.phone,
+            gender: c.gender,
             vehicle: c.vehicle,
             submittedAt: c.verification.submittedAt,
+            engineDecision: c.verification.engineDecision,
             reasons: c.verification.reasons,
             face: c.verification.face,
             dl: { last4: c.verification.dl?.last4, name: c.verification.dl?.name, dob: c.verification.dl?.dob },
@@ -353,8 +369,22 @@ module.exports.decideReview = async (req, res) => {
 
     if (kind === 'identity') {
         if (captain.verification?.status !== 'in_review') return res.status(409).json({ message: 'Nothing to review' });
+        // Approval means a person saw the original licence, vehicle papers and
+        // police verification, because the automatic checks can't yet.
+        const checks = Array.isArray(req.body.checks) ? req.body.checks : [];
+        if (decision === 'approve' && !DOCUMENT_CHECKS.every((item) => checks.includes(item))) {
+            return res.status(400).json({ message: 'Tick all three document checks before approving.', reason: 'checks_missing' });
+        }
         captain.verification.status = decision === 'approve' ? 'verified' : 'rejected';
-        if (decision === 'reject') captain.verification.reasons = [...(captain.verification.reasons || []), 'admin_rejected'];
+        if (decision === 'approve') captain.verification.documentChecks = { licence: true, vehicle: true, police: true, at: new Date() };
+        if (decision === 'reject') {
+            captain.verification.reasons = [...(captain.verification.reasons || []), 'admin_rejected'];
+            // Nothing left to confirm about a rejected captain; drop the photo too.
+            if (captain.genderCheck?.status === 'in_review') {
+                captain.genderCheck = { status: 'not_needed' };
+                captain.womenRidersOnly = false;
+            }
+        }
         captain.verification.decidedAt = new Date();
         captain.verification.decidedBy = 'admin';
         // Reviewed: the photos aren't needed any more.
